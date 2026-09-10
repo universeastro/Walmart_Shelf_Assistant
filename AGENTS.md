@@ -11,6 +11,7 @@
 - `excel_mapper.ps1` —— 实际映射逻辑，PowerShell + **Excel COM**
 - `文件/` —— A 模板、B 模板、需求文档
 - `docs/VERIFICATION_REPORT.md` —— **独立验证报告，动手前先看**
+- `docs/CODE_REVIEW.md` —— **代码审查，7 项潜伏问题与健壮性缺陷**
 
 ## 硬性约束
 
@@ -29,6 +30,11 @@ PowerShell 5.1 读无 BOM 的 `.ps1` 按 GBK 解码，中文字面量全乱、�
 **4. 测试夹具必须入库。**
 放在 `tests/fixtures/`（`.gitignore` 已保留该路径）。不要放进被忽略的目录。
 夹具是判断映射对错的唯一客观依据。
+
+**5. 不要把 `Find-TargetColumns` 里的 `$columns = @{}` 改成 `[ordered]@{}`。**
+`OrderedDictionary` 的索引器把 `int` 当**位置索引**而非键，
+`$columns[$column] = ...` 会立刻抛 `ArgumentOutOfRangeException`（参数名 `index`）。
+已实测踩到。
 
 ## 改完必须验证
 
