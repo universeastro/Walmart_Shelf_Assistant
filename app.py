@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 import threading
+import ctypes
+from ctypes import wintypes
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -10,6 +12,66 @@ from tkinter import filedialog, messagebox, ttk
 
 APP_DIR = Path(__file__).resolve().parent
 MAPPER = APP_DIR / "excel_mapper.ps1"
+
+
+class CompletionDialog(tk.Toplevel):
+    def __init__(self, parent, message):
+        super().__init__(parent)
+        self.withdraw()
+        self.title("处理完成")
+        self.transient(parent)
+        self.resizable(False, False)
+        self.parent = parent
+        self._pending = None
+        body = ttk.Frame(self, padding=24)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text=message, wraplength=320).pack(pady=(0, 22))
+        self.confirm = ttk.Button(body, text="确定", command=self.destroy)
+        self.confirm.pack(anchor="e")
+        self.bind("<Return>", lambda event: self.destroy())
+        self.bind("<Escape>", lambda event: self.destroy())
+        self._parent_binding = parent.bind("<Configure>", self._schedule_center, add="+")
+        self.bind("<Configure>", self._schedule_center)
+        self.update_idletasks()
+        self._center()
+        self.deiconify()
+        self.confirm.focus_set()
+
+    def _schedule_center(self, event):
+        if event.widget in (self.parent, self) and self._pending is None:
+            self._pending = self.after_idle(self._center)
+
+    def _center(self):
+        self._pending = None
+        if sys.platform == "win32":
+            # Tk sizes describe client areas; Windows rectangles include the
+            # title bar and borders, which must participate in centering.
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+            user32.GetAncestor.restype = wintypes.HWND
+            user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+            user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                          ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+            owner = user32.GetAncestor(self.parent.winfo_id(), 2)
+            dialog = user32.GetAncestor(self.winfo_id(), 2)
+            parent_rect, dialog_rect = wintypes.RECT(), wintypes.RECT()
+            if user32.GetWindowRect(owner, ctypes.byref(parent_rect)) and user32.GetWindowRect(dialog, ctypes.byref(dialog_rect)):
+                x = (parent_rect.left + parent_rect.right - dialog_rect.right + dialog_rect.left) // 2
+                y = (parent_rect.top + parent_rect.bottom - dialog_rect.bottom + dialog_rect.top) // 2
+                if (dialog_rect.left, dialog_rect.top) != (x, y):
+                    user32.SetWindowPos(dialog, None, x, y, 0, 0, 0x0015)
+                return
+        x = self.parent.winfo_rootx() + (self.parent.winfo_width() - self.winfo_width()) // 2
+        y = self.parent.winfo_rooty() + (self.parent.winfo_height() - self.winfo_height()) // 2
+        if (self.winfo_x(), self.winfo_y()) != (x, y):
+            self.geometry(f"+{x}+{y}")
+
+    def destroy(self):
+        if self._pending is not None:
+            self.after_cancel(self._pending)
+            self._pending = None
+        self.parent.unbind("<Configure>", self._parent_binding)
+        super().destroy()
 
 
 class ShelfAssistant(tk.Tk):
@@ -25,6 +87,7 @@ class ShelfAssistant(tk.Tk):
         self.row_mode_var = tk.StringVar(value="Visible")
         self.status_var = tk.StringVar(value="请选择文件 A 和文件 B")
         self.running = False
+        self.completion_dialog = None
         self._build_ui()
 
     def _build_ui(self):
@@ -182,7 +245,9 @@ class ShelfAssistant(tk.Tk):
             self._write_log(f"跳过隐藏行：{payload.get('rowsHiddenSkipped', 0)} 行。")
             for item in payload.get("skipped", []):
                 self._write_log("跳过：" + item)
-            messagebox.showinfo("处理完成", payload.get("message", "映射完成。"))
+            if self.completion_dialog is not None and self.completion_dialog.winfo_exists():
+                self.completion_dialog.destroy()
+            self.completion_dialog = CompletionDialog(self, payload.get("message", "映射完成。"))
         else:
             self.status_var.set("处理失败")
             message = payload.get("message") or "Excel 处理失败，请确认本机已安装 Microsoft Excel。"

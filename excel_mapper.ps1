@@ -56,6 +56,7 @@ function Set-CellValue($Worksheet, [int]$Row, [int]$Column, [object]$Value) {
     $cell = $Worksheet.Cells.Item($Row, $Column)
     try {
         $cell.Value2 = $Value
+        $cell.HorizontalAlignment = 5 # xlHAlignFill; only this mapped cell.
     } finally {
         [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($cell)
     }

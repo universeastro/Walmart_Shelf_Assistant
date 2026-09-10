@@ -11,7 +11,7 @@
 - `excel_mapper.ps1` —— 实际映射逻辑，PowerShell + **Excel COM**
 - `文件/` —— A 模板、B 模板、需求文档
 - `docs/VERIFICATION_REPORT.md` —— **独立验证报告，动手前先看**
-- `docs/CODE_REVIEW.md` —— **代码审查，9 项潜伏问题与健壮性缺陷（含修复状态表）**
+- `docs/CODE_REVIEW.md` —— **代码审查，10 项潜伏问题与健壮性缺陷（含修复状态表）**
 - `tests/fixtures/A_sample.xls` —— 测试夹具（**合成数据**），校验的唯一客观依据
 - `.claude/skills/` —— Claude 侧的校验流程与脚本。**这里不会自动加载到你**，
   但下面「改完必须验证」一条已把该跑的脚本写全，可直接执行。
@@ -97,6 +97,17 @@ Excel 会合并条件相同的相邻列规则（48 条 → 43 条），覆盖范
 以及 `Additional Image URL (+)` / `1 (+)`。映射器会把这 8 个字段报进 `skipped`，
 GUI 写进日志面板。**这是业务侧要拍板的事——不要擅自改映射去凑这些字段。**
 
+## 一个容易被漏掉的盲区
+
+**`tests/compare_ooxml.py` 不看对齐与样式。** 它只比 dataValidation、
+conditionalFormatting 的 sqref 覆盖和公式。改动涉及**单元格格式**时，
+只跑它然后说「格式保留通过」是没有依据的——必须补 `tests/verify_alignment.ps1`。
+
+**写入的单元格会被主动设为「水平对齐：填充」**（`Set-CellValue` 里的
+`HorizontalAlignment = 5`），这是 2026-09-10 起有意为之、README 已说明的行为。
+实测确认它**不会**污染表头或写入区之外的单元格（564 + 1022 格逐格比对一致），
+也**不影响** `Value2`，故不影响上架数据。
+
 ## 一个必须避开的坑
 
 **不要用 `$ws.Cells.Item($r,$c).Value2 = $null` 清空单元格。**
@@ -119,4 +130,8 @@ GUI 写进日志面板。**这是业务侧要拍板的事——不要擅自改�
   `UsedRange.Value2` 读入二维数组比对，与上一个工具路径不同，互为交叉验证。
 - `tests/verify_autofilter.ps1` —— 对夹具施加**真实 AutoFilter**（README 让用户
   做的第一步），断言筛掉的行被跳过、唯一可见行落到目标。无参数直接跑。
+- `tests/verify_alignment.ps1` —— 断言写入单元格为水平对齐「填充」，
+  且表头区与写入区之外与模板**逐格一致**。改 `Set-CellValue` 后必跑。
+- `tests/smoke_completion_dialog.py` —— `CompletionDialog` 冒烟测试，
+  用 `py` 跑。需可见桌面会话。
 - `tests/diag_cells.ps1` —— 读取指定单元格的公式与计算值，排查用。
