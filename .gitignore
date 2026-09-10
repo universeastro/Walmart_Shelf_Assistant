@@ -55,6 +55,18 @@ _docx_qa/
 .env.local
 *.local.json
 
+# ---------- 本地临时产物 ----------
+# 手动试跑映射器留下的输出文件。不是夹具（夹具在 tests/fixtures/，必须入库），
+# 也不是业务数据，每次试跑都重新生成。留在 git status 里会污染改动检测。
+/out_*.xlsx
+/out_*.xls
+/输出*.xlsx
+
+# Claude Code 定时轮询任务的持久化状态。是本机工作流，与项目本身无关。
+# 不入库还有个实际原因：它出现在 git status 里会触发轮询自己。
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
+
 # 注意：测试夹具（tests/fixtures 下的 .xlsx / .xls）必须入库。
 # 它们是接口契约的执行者，不入库就没法判断代码对错。
 # 因此这里不对 *.xlsx / *.xls 做全局忽略，只按目录忽略真实业务数据。
