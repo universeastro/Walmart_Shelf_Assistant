@@ -35,6 +35,14 @@ class UILayoutTests(unittest.TestCase):
                 for button in self.window.row_mode_buttons:
                     self.assertGreaterEqual(button.winfo_width(), button.winfo_reqwidth())
 
+    def test_path_entries_use_one_font_and_color(self):
+        from tkinter import font as tkfont
+        for entry in self.window.file_controls[::2]:
+            self.assertEqual(str(entry.cget("foreground")), "#252b32")
+            actual = tkfont.Font(root=self.window, font=entry.cget("font")).actual()
+            self.assertEqual(actual["family"].lower(), "microsoft yahei ui")
+            self.assertEqual(actual["size"], 10)
+
     def test_busy_controls_and_failure_recovery(self):
         for name, variable in (("a.xls", self.window.source_var), ("b.xlsx", self.window.target_var)):
             path = Path(self.temp.name) / name
@@ -84,13 +92,10 @@ class UILayoutTests(unittest.TestCase):
             warning.assert_called_once()
             open_folder.assert_not_called()
 
-    def test_path_tooltip_can_be_cancelled(self):
-        self.window.source_var.set("a.xls")
-        self.window._schedule_path_tip(self.window.file_controls[0], self.window.source_var)
-        self.assertIsNotNone(self.window._tip_job)
-        self.window._hide_path_tip()
-        self.assertIsNone(self.window._tip_job)
-        self.assertIsNone(self.window._path_tip)
+    def test_path_entries_have_no_hover_popup_binding(self):
+        for entry in self.window.file_controls[::2]:
+            self.assertEqual(entry.bind("<Enter>"), "")
+        self.assertFalse(hasattr(self.window, "_schedule_path_tip"))
 
 
 if __name__ == "__main__":

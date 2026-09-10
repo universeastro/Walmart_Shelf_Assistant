@@ -9,14 +9,14 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 
 # 需求第 15 条要求不破坏模板自带格式。2026-09-10 起 excel_mapper.ps1 的
-# Set-CellValue 里新增了 `$cell.HorizontalAlignment = 5`（xlHAlignFill），
+# Set-CellValue 对新写入 Color 使用 -4131（Left），其他字段使用 5（Fill），
 # 这是对写入单元格**主动修改水平对齐**。
 #
 # tests/compare_ooxml.py 只看 dataValidation / conditionalFormatting / 公式，
 # **完全看不到对齐**——只跑它就说「格式保留通过」是一句空话。本脚本补这个盲区。
 #
 # 三条断言：
-#   1. 写入的数据单元格，水平对齐确为 5（改动生效，不是空转）
+#   1. 新写入 Color 左对齐，其余映射字段填充对齐
 #   2. 表头区（数据行以上）与模板**逐格一致**——防止对齐写入连带污染共享样式
 #   3. 写入区之外（溢出行的映射列、非映射列）与模板逐格一致
 #
@@ -63,6 +63,8 @@ if ($null -eq $json) {
 }
 Write-Output "   exit=$exitCode success=$($json.success) rowsWritten=$($json.rowsWritten)"
 $written = [int]$json.rowsWritten
+if ($exitCode -ne 0 -or -not $json.success -or $written -eq 0) { throw 'No successful data write to validate.' }
+if ($json.writeStartRow) { $DataStartRow = [int]$json.writeStartRow }
 
 $mappedColumns = @($json.mappings | ForEach-Object { ConvertTo-ColumnNumber $_.targetColumn })
 Write-Output "   mapped target columns: $(($json.mappings | ForEach-Object { $_.targetColumn }) -join ', ')"
@@ -82,20 +84,28 @@ try {
     $lastRow = $used.Row + $used.Rows.Count - 1
     Write-Output "   template used range: rows 1..$lastRow, cols 1..$lastCol"
 
-    # --- 断言 1：写入的数据单元格对齐确为 5 ---
+    # --- 断言 1：按实际 Color 表头独立确认对齐 ---
     $checkedData = 0
+    $colorColumns = @()
+    for ($r = 1; $r -le 10; $r++) {
+        for ($c = $used.Column; $c -le $lastCol; $c++) {
+            if ([string]$tpl.Cells.Item($r, $c).Text -match '^\s*Color\s*$') { $colorColumns += $c }
+        }
+    }
+    if ($colorColumns.Count -ne 1 -or $mappedColumns -notcontains $colorColumns[0]) { throw 'Expected one mapped Color header.' }
     for ($k = 0; $k -lt $written; $k++) {
         $r = $DataStartRow + $k
         foreach ($c in $mappedColumns) {
             $a = Get-Alignment $out $r $c
             $checkedData++
-            if ($null -eq $a -or [int]$a -ne 5) {
-                $failures.Add("data cell r${r}c${c}: HorizontalAlignment expected 5 (xlHAlignFill), got [$a]")
+            $expected = if ($colorColumns -contains $c) { -4131 } else { 5 }
+            if ($null -eq $a -or [int]$a -ne $expected) {
+                $failures.Add("data cell r${r}c${c}: HorizontalAlignment expected $expected, got [$a]")
             }
         }
     }
-    Write-Output "== assertion 1: written data cells are Fill-aligned =="
-    Write-Output "   checked $checkedData cell(s); expected all = 5"
+    Write-Output "== assertion 1: Color is Left-aligned; other mapped fields are Fill-aligned =="
+    Write-Output "   checked $checkedData cell(s)"
 
     # --- 断言 2：表头区与模板逐格一致 ---
     $checkedHeader = 0
@@ -153,5 +163,5 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 Write-Output ''
-Write-Output 'PASS: mapped cells are Fill-aligned; header and unwritten areas match the template exactly.'
+Write-Output 'PASS: Color is Left-aligned, other mapped cells are Fill-aligned; other alignments are unchanged.'
 exit 0

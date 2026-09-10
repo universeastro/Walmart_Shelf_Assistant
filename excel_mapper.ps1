@@ -52,11 +52,11 @@ function Get-CellValue($Worksheet, [int]$Row, [int]$Column) {
     }
 }
 
-function Set-CellValue($Worksheet, [int]$Row, [int]$Column, [object]$Value) {
+function Set-CellValue($Worksheet, [int]$Row, [int]$Column, [object]$Value, [int]$HorizontalAlignment = 5) {
     $cell = $Worksheet.Cells.Item($Row, $Column)
     try {
         $cell.Value2 = $Value
-        $cell.HorizontalAlignment = 5 # xlHAlignFill; only this mapped cell.
+        $cell.HorizontalAlignment = $HorizontalAlignment
     } finally {
         [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($cell)
     }
@@ -206,6 +206,49 @@ function Find-TargetColumn($TargetColumns, [string[]]$LeafNames, [string[]]$Path
     return $null
 }
 
+function Get-LastRecordRow($Worksheet, [int]$DataStart) {
+    $used = $Worksheet.UsedRange
+    $constants = $null
+    $last = 0
+    try {
+        # Constants distinguish records from preformatted rows and formula scaffolding.
+        # Include all used columns, not only SKU or the mapped columns.
+        try { $constants = $used.SpecialCells(2) } # xlCellTypeConstants
+        catch [System.Runtime.InteropServices.COMException] {
+            if ($_.Exception.HResult -ne -2146827284) { throw }
+        }
+        if ($null -ne $constants) {
+            foreach ($area in $constants.Areas) {
+                try {
+                    $bottom = $area.Row + $area.Rows.Count - 1
+                    if ($bottom -ge $DataStart) { $last = [math]::Max($last, $bottom) }
+                } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($area) }
+            }
+        }
+        return $last
+    } finally {
+        foreach ($item in @($constants, $used)) {
+            if ($null -ne $item) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($item) }
+        }
+    }
+}
+
+function Assert-WriteRegion($Worksheet, $Mappings, [int]$Start, [int]$Count) {
+    if ($Count -eq 0) { return }
+    $end = $Start + $Count - 1
+    if ($end -gt $Worksheet.Rows.Count) { throw '追加数据超过工作表最大行数。' }
+    foreach ($mapping in $Mappings) {
+        $letter = $mapping.Target.Letter
+        $range = $Worksheet.Range("${letter}${Start}:${letter}${end}")
+        try {
+            # Mixed ranges return null, so only an explicit false is safe.
+            if ($range.HasFormula -ne $false -or $range.MergeCells -ne $false) {
+                throw "追加区域 ${letter}${Start}:${letter}${end} 包含公式或合并单元格，为保护模板已停止写入。"
+            }
+        } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) }
+    }
+}
+
 $excel = $null
 $sourceWb = $null
 $targetWb = $null
@@ -223,6 +266,8 @@ $result = [ordered]@{
     rowsRead = 0
     rowsWritten = 0
     rowsHiddenSkipped = 0
+    existingLastRow = 0
+    writeStartRow = 0
     rowMode = $RowMode
     mappings = @()
     skipped = @()
@@ -333,13 +378,21 @@ try {
     }
     $result.rowsRead = $dataRows.Count
 
+    $stage = '检查追加位置'
+    $result.existingLastRow = Get-LastRecordRow $targetWs $targetInfo.DataStart
+    $writeStart = if ($result.existingLastRow -gt 0) { $result.existingLastRow + 4 } else { $targetInfo.DataStart }
+    $result.writeStartRow = $writeStart
+    Assert-WriteRegion $targetWs $resolvedMappings $writeStart $dataRows.Count
+    $stage = '写入追加数据'
+
     for ($index = 0; $index -lt $dataRows.Count; $index++) {
         $sourceRow = $dataRows[$index]
-        $targetRow = $targetInfo.DataStart + $index
+        $targetRow = $writeStart + $index
         foreach ($mapping in $resolvedMappings) {
             $value = Get-CellValue $sourceWs $sourceRow $mapping.Source.Column
             if ($null -eq $value) { $value = '' }
-            Set-CellValue $targetWs $targetRow $mapping.Target.Column $value
+            $alignment = if ((Normalize-Text $mapping.Target.Leaf) -eq 'color') { -4131 } else { 5 }
+            Set-CellValue $targetWs $targetRow $mapping.Target.Column $value $alignment
         }
         $result.rowsWritten++
     }

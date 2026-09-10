@@ -93,8 +93,6 @@ class ShelfAssistant(tk.Tk):
         self.completion_dialog = None
         self.last_output = None
         self.summary_var = tk.StringVar(value="尚无处理结果")
-        self._path_tip = None
-        self._tip_job = None
         self.settings_path = Path(settings_path) if settings_path is not None else SETTINGS_PATH
         self._paths_dirty = False
         self._path_vars = {
@@ -161,7 +159,6 @@ class ShelfAssistant(tk.Tk):
                     pass
 
     def destroy(self):
-        self._hide_path_tip()
         self._save_paths()
         super().destroy()
 
@@ -174,9 +171,10 @@ class ShelfAssistant(tk.Tk):
         style.configure("Title.TLabel", font=("Microsoft YaHei UI", 22, "bold"))
         style.configure("Section.TLabel", font=("Microsoft YaHei UI", 11, "bold"))
         style.configure("Hint.TLabel", foreground="#66717e")
-        style.configure("TEntry", padding=9, fieldbackground="#ffffff", bordercolor="#cbd2dc",
+        style.configure("TEntry", padding=9, foreground="#252b32", fieldbackground="#ffffff", bordercolor="#cbd2dc",
                         lightcolor="#ffffff", darkcolor="#ffffff")
         style.map("TEntry", bordercolor=[("focus", "#0071ce")],
+                  foreground=[("disabled", "#252b32"), ("!disabled", "#252b32")],
                   fieldbackground=[("disabled", "#edf0f3")])
         style.configure("TButton", padding=(14, 8), background="#ffffff", bordercolor="#cbd2dc")
         style.map("TButton", background=[("active", "#e8f2fc"), ("disabled", "#edf0f3")])
@@ -247,40 +245,13 @@ class ShelfAssistant(tk.Tk):
 
     def _file_row(self, parent, row, label, variable, command):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 18), pady=6)
-        entry = ttk.Entry(parent, textvariable=variable, width=12)
+        entry = ttk.Entry(parent, textvariable=variable, width=12,
+                          font=("Microsoft YaHei UI", 10), foreground="#252b32")
         entry.grid(row=row, column=1, sticky="ew", pady=6)
-        entry.bind("<Enter>", lambda event: self._schedule_path_tip(entry, variable))
-        for sequence in ("<Leave>", "<ButtonPress>", "<KeyPress>", "<FocusOut>"):
-            entry.bind(sequence, lambda event: self._hide_path_tip(), add="+")
         entry.xview_moveto(1)
         button = ttk.Button(parent, text="浏览...", command=command)
         button.grid(row=row, column=2, padx=(10, 0), pady=6)
         self.file_controls.extend((entry, button))
-
-    def _schedule_path_tip(self, entry, variable):
-        self._hide_path_tip()
-        def show():
-            self._tip_job = None
-            if not variable.get():
-                return
-            tip = self._path_tip = tk.Toplevel(self)
-            tip.withdraw()
-            tip.overrideredirect(True)
-            ttk.Label(tip, text=variable.get(), padding=10,
-                      wraplength=min(560, self.winfo_width() - 40)).pack()
-            tip.update_idletasks()
-            x = min(entry.winfo_rootx(), self.winfo_rootx() + self.winfo_width() - tip.winfo_reqwidth() - 10)
-            tip.geometry(f"+{max(0, x)}+{entry.winfo_rooty() + entry.winfo_height() + 4}")
-            tip.deiconify()
-        self._tip_job = self.after(450, show)
-
-    def _hide_path_tip(self):
-        if self._tip_job is not None:
-            self.after_cancel(self._tip_job)
-            self._tip_job = None
-        if self._path_tip is not None:
-            self._path_tip.destroy()
-            self._path_tip = None
 
     def _browse_options(self, variable, save=False):
         options = {"parent": self}
@@ -372,7 +343,6 @@ class ShelfAssistant(tk.Tk):
             messagebox.showwarning("输出路径无效", "输出文件不能覆盖文件 A 或文件 B。")
             return
         self.status_var.set("正在处理...")
-        self._hide_path_tip()
         self.last_output = None
         self.open_output_button.configure(state="disabled")
         self.summary_var.set("正在生成输出文件...")
@@ -441,6 +411,8 @@ class ShelfAssistant(tk.Tk):
             self._write_log(payload.get("message", "映射完成。"))
             self._write_log(f"输出文件：{payload.get('output', self.output_var.get())}")
             self._write_log(f"读取 {payload.get('rowsRead', 0)} 行，写入 {payload.get('rowsWritten', 0)} 行。")
+            if payload.get('writeStartRow') and payload.get('rowsWritten', 0):
+                self._write_log(f"本批次从第 {payload['writeStartRow']} 行开始写入；已有数据末行：{payload.get('existingLastRow', 0)}。")
             self._write_log(f"跳过隐藏行：{payload.get('rowsHiddenSkipped', 0)} 行。")
             for item in payload.get("skipped", []):
                 self._write_log("跳过：" + item)
