@@ -210,6 +210,7 @@ $sourceWs = $null
 $targetWs = $null
 $sourceUsed = $null
 $workingTargetPath = $null
+$stage = '检查输出路径'
 $result = [ordered]@{
     success = $false
     output = $OutputPath
@@ -225,18 +226,32 @@ $result = [ordered]@{
 
 try {
     $resolvedOutput = [System.IO.Path]::GetFullPath($OutputPath)
+    if (Test-Path -LiteralPath $resolvedOutput -PathType Container) { throw '输出路径是文件夹，请指定完整的 Excel 文件名。' }
+    if (-not [System.IO.Path]::GetExtension($resolvedOutput)) { $resolvedOutput += [System.IO.Path]::GetExtension($TargetPath) }
+    $result.output = $resolvedOutput
     $outputDirectory = [System.IO.Path]::GetDirectoryName($resolvedOutput)
     if (-not (Test-Path $outputDirectory)) { New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null }
     if ([System.IO.Path]::GetFullPath($TargetPath) -eq $resolvedOutput) { throw '输出文件不能覆盖原始 B 模板，请选择新的输出文件名。' }
+    if ([System.IO.Path]::GetFullPath($SourcePath) -eq $resolvedOutput) { throw '输出文件不能覆盖文件 A。' }
+    if (Test-Path -LiteralPath $resolvedOutput) {
+        try {
+            $probe = [IO.File]::Open($resolvedOutput, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+            $probe.Dispose()
+        } catch { throw "输出文件被占用或不可写：$resolvedOutput。请关闭该文件或选择新的输出文件名。" }
+    }
 
+    $stage = '启动 Excel'
     $excel = New-Object -ComObject Excel.Application
     $excel.Visible = $false
     $excel.DisplayAlerts = $false
+    $stage = '读取文件 A'
     $sourceWb = $excel.Workbooks.Open((Resolve-Path $SourcePath).Path, 0, $true)
     # Open a private writable copy, preserving the original template.
     $workingTargetPath = Join-Path $outputDirectory ('.walmart_shelf_assistant_' + [guid]::NewGuid().ToString('N') + [System.IO.Path]::GetExtension($TargetPath))
     Copy-Item -LiteralPath (Resolve-Path $TargetPath).Path -Destination $workingTargetPath -Force
+    $stage = '读取模板副本'
     $targetWb = $excel.Workbooks.Open($workingTargetPath, 0, $false)
+    $stage = '匹配并写入数据'
     $sourceWs = $sourceWb.Worksheets.Item(1)
     $targetWs = Find-TargetSheet $targetWb
     $result.targetSheet = $targetWs.Name
@@ -317,12 +332,18 @@ try {
         $result.rowsWritten++
     }
 
+    $stage = '保存输出文件'
     $targetWb.SaveAs($resolvedOutput)
+    $result.output = $targetWb.FullName
     $result.success = $true
     $result.message = if ($dataRows.Count -eq 0) { '未发现源数据行；已生成未填充的输出副本。' } else { '映射完成。' }
 }
 catch {
     $result.message = $_.Exception.Message
+    $result.stage = $stage
+    if ($stage -eq '保存输出文件') {
+        $result.message = "无法保存到 $resolvedOutput。请确认输出文件未在 Excel/WPS 中打开，或选择新的文件名。原始错误：" + $result.message
+    }
     $result.errorLine = $_.InvocationInfo.ScriptLineNumber
     $result.errorType = $_.Exception.GetType().FullName
     if ($result.message -match '80010108|RPC_E_DISCONNECTED') {

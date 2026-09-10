@@ -174,6 +174,10 @@ class ShelfAssistant(tk.Tk):
         else:
             self.status_var.set("处理失败")
             message = payload.get("message") or "Excel 处理失败，请确认本机已安装 Microsoft Excel。"
+            if payload.get("stage"):
+                self._write_log("失败阶段：" + payload["stage"])
+            if payload.get("errorLine"):
+                self._write_log(f"脚本行号：{payload['errorLine']}；类型：{payload.get('errorType', '')}")
             self._write_log("错误：" + message)
             messagebox.showerror("处理失败", message)
 
