@@ -77,8 +77,16 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 1. **歧义与降级路径**：`fallback-column` 的映射（当前是 `E -> Variant Group ID`）
    是否仍指向正确列？源表列序变动时会怎样？
 2. **空输入**：空模板（`文件/A模板.xls`）应返回 `rowsRead: 0` 而非报错。
-3. **多行输入**：夹具只有 1 行。真实选品表数百行——**多行时的行序、
-   行数与目标行的对应关系**必须验证，这是合成样本完全覆盖不到的地方。
+3. **多行输入**：**已有现成工具，直接跑**（不要再手工造夹具）：
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_multirow.ps1 -Rows 372
+   powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_multirow.ps1 -Rows 5 -BlankAt 3
+   ```
+
+   退出码 `0` 全对 / `1` 有失败（逐条打印期望值与实际值）。
+   它自己生成夹具、跑映射器、逐格比对，断言由映射器的 JSON 契约驱动，
+   改映射表也不会变成假阳性。**`-Rows 372` 是真实规模。**
 4. **边界**：源表数据行多于模板可容纳行数时会怎样？
 
 ## 第 3 步：代码审查（改动部分）
