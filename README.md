@@ -48,6 +48,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
 
 产物是 `dist\WalmartShelfAssistant\` 整个文件夹（约 26 MB）。**把这个文件夹整体拷贝过去**，双击其中的 `WalmartShelfAssistant.exe` 即可。
 
+要在**本机**装好并生成桌面快捷方式：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+```
+
+程序装到 `%LOCALAPPDATA%\Programs\WalmartShelfAssistant\`（免管理员权限），桌面生成「沃尔玛上架助手」快捷方式。卸载就是删掉该目录和桌面快捷方式。
+
+注意 `install.ps1` 是**复制**而非链接到 `dist\`：`build.ps1` 每次会删除重建 `dist\`，快捷方式若指向那里，下次打包就失效了。
+
 目标电脑**必须安装 Microsoft Excel**——映射通过 Excel COM 自动化完成（需求第 15 条要求保留模板格式，这一步无法用其他库替代）。除此之外无需任何安装：Python 已打进包里，PowerShell 是 Windows 自带的。
 
 三点说明：

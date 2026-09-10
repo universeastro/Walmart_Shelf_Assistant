@@ -155,6 +155,11 @@ conditionalFormatting 的 sqref 覆盖和公式。改动涉及**单元格格式*
 `build.ps1` 末尾会断言 `_internal\excel_mapper.ps1` 存在——少了它程序能启动、
 点「开始填充」才报错，属于最难排查的一类失败。
 
+`install.ps1` 把 `dist\` **复制**到 `%LOCALAPPDATA%\Programs\WalmartShelfAssistant\`
+并在桌面建快捷方式（免管理员权限）。**刻意不用链接指向 `dist\`**：
+`build.ps1` 每次删除重建 `dist\`，链接会让快捷方式在下次打包后失效。
+`dist\` 不存在时 `install.ps1` 会自动先跑 `build.ps1`。
+
 ## 写 Tk 多线程测试必须用 mainloop()，不能用 update() 忙等
 
 **只有当主线程阻塞在 `mainloop()` 里**（`_tkinter` 的 `dispatching` 已置位）、
