@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import threading
+import tempfile
 import ctypes
 from ctypes import wintypes
 import tkinter as tk
@@ -12,6 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 
 APP_DIR = Path(__file__).resolve().parent
 MAPPER = APP_DIR / "excel_mapper.ps1"
+SETTINGS_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".config") / "WalmartShelfAssistant" / "settings.json"
 
 
 class CompletionDialog(tk.Toplevel):
@@ -75,7 +77,7 @@ class CompletionDialog(tk.Toplevel):
 
 
 class ShelfAssistant(tk.Tk):
-    def __init__(self):
+    def __init__(self, settings_path=None):
         super().__init__()
         self.title("沃尔玛上架助手")
         self.geometry("760x600")
@@ -88,7 +90,66 @@ class ShelfAssistant(tk.Tk):
         self.status_var = tk.StringVar(value="请选择文件 A 和文件 B")
         self.running = False
         self.completion_dialog = None
+        self.settings_path = Path(settings_path) if settings_path is not None else SETTINGS_PATH
+        self._paths_dirty = False
+        self._path_vars = {
+            "source": self.source_var,
+            "target": self.target_var,
+            "output": self.output_var,
+        }
+        self._load_paths()
+        for variable in self._path_vars.values():
+            variable.trace_add("write", self._mark_paths_dirty)
         self._build_ui()
+
+    def _load_paths(self):
+        try:
+            settings = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if isinstance(settings, dict):
+            for key, variable in self._path_vars.items():
+                value = settings.get(key)
+                if isinstance(value, str):
+                    if key in ("source", "target") and value:
+                        try:
+                            exists = Path(value.strip()).is_file()
+                        except (OSError, ValueError):
+                            exists = False
+                        if not exists:
+                            value = ""
+                            self._paths_dirty = True
+                    variable.set(value)
+
+    def _mark_paths_dirty(self, *_):
+        self._paths_dirty = True
+
+    def _save_paths(self):
+        if not self._paths_dirty:
+            return
+        temporary = None
+        try:
+            self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings = {key: variable.get() for key, variable in self._path_vars.items()}
+            # Replace only after the complete JSON has been written successfully.
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.settings_path.parent,
+                                             suffix=".tmp", delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(settings, stream, ensure_ascii=False, indent=2)
+            os.replace(temporary, self.settings_path)
+            self._paths_dirty = False
+        except OSError as exc:
+            messagebox.showwarning("路径保存失败", f"无法保存上次使用的路径：{exc}", parent=self)
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def destroy(self):
+        self._save_paths()
+        super().destroy()
 
     def _build_ui(self):
         style = ttk.Style(self)
@@ -185,6 +246,7 @@ class ShelfAssistant(tk.Tk):
     def run_mapping(self):
         if self.running:
             return
+        self._save_paths()
         source = Path(self.source_var.get().strip())
         target = Path(self.target_var.get().strip())
         output = Path(self.output_var.get().strip())

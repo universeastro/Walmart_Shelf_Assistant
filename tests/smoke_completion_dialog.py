@@ -11,6 +11,7 @@ deiconify() 就被跳过，弹窗永久停在 withdraw 状态——**用户看�
 """
 
 import sys
+import tempfile
 import tkinter as tk
 from pathlib import Path
 
@@ -110,7 +111,12 @@ print("== 6. 真实 _finish 路径（含 completion_dialog 的复用守卫）=="
 # 上面几节用的是裸 tk.Tk；这里换成真的 ShelfAssistant，让 _finish 里那段
 # 「先 destroy 旧弹窗再建新的」守卫也被真正执行到。两个 Tk 根不能共存，
 # 所以放在 root.destroy() 之后。
-win = app.ShelfAssistant()
+# 必须显式给 settings_path：ShelfAssistant 现在会把路径存到
+# %LOCALAPPDATA%\WalmartShelfAssistant\settings.json，无参构造会让测试
+# 读写**用户真实的配置文件**。测试不该碰用户数据。
+_settings_dir = tempfile.TemporaryDirectory()
+_settings = Path(_settings_dir.name) / "settings.json"
+win = app.ShelfAssistant(settings_path=_settings)
 # 挪到屏幕外而不是 withdraw()：winfo_viewable() 要求自身与所有祖先都已映射，
 # 对一个 transient 子窗口来说父窗口被 withdraw 会让它必然报告 0——
 # 那是测试自己制造的假阳性，不是弹窗的问题。

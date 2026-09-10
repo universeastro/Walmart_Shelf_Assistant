@@ -602,6 +602,101 @@ marshal 回 Tk 主线程，弹窗在主线程创建，不存在跨线程建控�
 - `compare_ooxml.py`：dataValidation **30/30**、公式 **0/0**、
   条件格式 **48→43**（第 2.2 节已记录的相邻同条件规则合并，覆盖等价）
 
+---
+
+## 12. 路径持久化设置（2026-09-10）
+
+### 12.1 改动
+
+`app.py` 新增：
+
+- `SETTINGS_PATH` = `%LOCALAPPDATA%\WalmartShelfAssistant\settings.json`
+  （`LOCALAPPDATA` 缺失时回退 `~/.config`）
+- `ShelfAssistant(settings_path=None)` 可注入配置路径——
+  **这是本次能被独立验证的前提**，否则测试只能去动用户真实配置
+- `_load_paths()` / `_save_paths()`：临时文件 + `os.replace` 原子替换
+- `_save_paths()` 在 `destroy()` 与 `run_mapping()` 开头各调用一次
+- 启动时 source/target 指向的文件不存在则清空该路径；
+  **output 无论是否存在都保留**（README 已承诺）
+
+`README.md` 补充了用户可见的行为说明。
+`excel_mapper.ps1` **未改动**（哈希与已提交版本一致），映射侧全部是回归。
+
+### 12.2 结果
+
+| 层面 | 结果 |
+|---|---|
+| Codex 自带单元测试 `tests/test_path_settings.py` | **6/6** 通过 |
+| **独立验证** `tests/verify_path_settings.py`（本报告作者所写，7 项） | **7/7** 通过 |
+| `CompletionDialog` 冒烟回归 | **6/6** 通过 |
+| 映射正确性 | **12/12**，退出码 0 |
+| 边界回归 | 372 行 / 4464 格、AutoFilter 全过 |
+| 对齐回归 | 12 + 564 + 1022 格全过 |
+| 格式抽查 | dataValidation 30/30、公式 0/0 |
+
+### 12.3 独立验证补了 Codex 没覆盖的五件事
+
+Codex 的 6 个用例**全部走 `destroy()`**。我从不同角度补的 7 项里，这几项是它没有的：
+
+1. **什么都没改时不在用户磁盘上生成配置**——避免每开一次程序就留一个文件
+2. **`run_mapping()` 里新增的 `_save_paths()` 调用点**——利用「保存在校验之前」
+   这一点，用不存在的源文件让它提前返回，**不启动 Excel 也能测到这个入口**
+3. **落盘的中文是 UTF-8 字节而非 `\uXXXX` 转义**（`ensure_ascii=False` 要真落到盘上）
+4. **损坏的配置文件被忽略，但不会被删除**（那是用户的文件）
+5. **类型检查分支被单独隔离**（见 12.5）
+
+### 12.4 `isinstance` 守卫是承重的（证伪验证）
+
+把 `app.py` 复制一份、将 `if isinstance(value, str):` 改成 `if True:`，
+喂入 `{"target": 12}`：
+
+```
+RAISED: AttributeError 'int' object has no attribute 'strip'
+```
+
+**没有这个守卫，一个被手工改坏或由外部写入的 `settings.json` 会让程序在
+`__init__` 期间崩溃、窗口根本不出现。** 它是一道防线，不是装饰。
+
+> 顺带说明：`_load_paths` 的 `try` 只包住了读文件与 `json.loads`，
+> 逐项赋值不在其中——所以类型检查**必须**留在那个位置。
+
+### 12.5 Codex 一个用例的强度问题（已在我的测试里补上）
+
+`tests/test_path_settings.py::test_missing_corrupt_and_wrong_type_settings`
+中的 `{"source": 12, "target": "valid.xlsx"}`：`target` 是**合法字符串**，
+它被清空是因为 `valid.xlsx` 不存在（走的是**存在性检查**），
+**不是**因为类型检查。该用例名为「wrong type」，却没有隔离类型分支。
+
+我的 `test_wrong_type_is_rejected_by_the_type_check_not_by_existence`
+用同一个**真实存在**的文件做对照：非字符串 → 拒绝；同一文件用字符串给出 → 接受。
+只有这样才能证明被拒绝的是「类型」而不是「文件不存在」。
+
+> 这不是缺陷，是测试强度问题。
+> **但一个永远不会失败的断言和一个会失败的断言，执行时都打印「ok」。**
+
+### 12.6 测试卫生：不要碰用户的真实配置
+
+本轮改动让 `ShelfAssistant()` 无参构造开始读写
+`%LOCALAPPDATA%\WalmartShelfAssistant\settings.json`。
+而上一轮写的 `tests/smoke_completion_dialog.py` 正是无参构造——
+**改动之后，它一跑就会去动用户真实配置**。已改为显式注入临时 `settings_path`。
+
+实测确认：全部测试跑完后，`%LOCALAPPDATA%\WalmartShelfAssistant\` **仍然不存在**。
+
+### 12.7 一个可议之处（非缺陷，未改动）
+
+`destroy()` → `_save_paths()` 失败时会弹 `messagebox.showwarning(parent=self)`。
+保存发生在 `super().destroy()` **之前**，父窗口仍在，所以不会出错；
+但「关闭窗口时弹出一个模态警告」的观感值得留意。**仅记录，未改动。**
+
+### 12.8 未覆盖
+
+- 未经真实业务 A/B 文件验证
+- 源表多行表头、源行数超模板容量（实测上限 372 行）
+- **配置文件写入过程中进程被强杀**：原子性由 `os.replace` 自身保证，
+  但我没有真正制造出「写一半被杀」的场景；Codex 的用例模拟的是
+  `os.replace` 抛异常，不是真崩溃
+
 > **映射器不受影响**：`excel_mapper.ps1` 第 329 行显式做了
 > `if ($null -eq $value) { $value = '' }`，从不把 `$null` 赋给 Excel 单元格。
 > 这一行现在看是**必要的保险**，不要删。

@@ -97,6 +97,22 @@ Excel 会合并条件相同的相邻列规则（48 条 → 43 条），覆盖范
 以及 `Additional Image URL (+)` / `1 (+)`。映射器会把这 8 个字段报进 `skipped`，
 GUI 写进日志面板。**这是业务侧要拍板的事——不要擅自改映射去凑这些字段。**
 
+## 用户配置（2026-09-10 起）
+
+`app.py` 会把三个路径存到
+`%LOCALAPPDATA%\WalmartShelfAssistant\settings.json`，`destroy()` 与
+`run_mapping()` 开头各保存一次，**打开又关闭但不改动任何路径时不写盘**。
+
+两条给改动者：
+
+1. **`ShelfAssistant(settings_path=...)` 是可注入的，测试必须用它。**
+   无参构造会读写**用户真实的配置**——`tests/smoke_completion_dialog.py`
+   已经因为无参构造踩过一次，记得保持注入临时路径。
+2. **`_load_paths` 里的 `if isinstance(value, str):` 是承重的，不要删。**
+   实测：绕过它之后，配置里一个非字符串值会让程序在 `__init__` 期间抛
+   `AttributeError`，**窗口根本不出现**。该 `try` 只包住读文件与 `json.loads`，
+   逐项赋值不在其中，所以类型检查必须留在原处。
+
 ## 一个容易被漏掉的盲区
 
 **`tests/compare_ooxml.py` 不看对齐与样式。** 它只比 dataValidation、
@@ -134,4 +150,10 @@ conditionalFormatting 的 sqref 覆盖和公式。改动涉及**单元格格式*
   且表头区与写入区之外与模板**逐格一致**。改 `Set-CellValue` 后必跑。
 - `tests/smoke_completion_dialog.py` —— `CompletionDialog` 冒烟测试，
   用 `py` 跑。需可见桌面会话。
+- `tests/test_path_settings.py` —— 路径持久化的单元测试（Codex 侧）。
+- `tests/verify_path_settings.py` —— 同一功能的**独立**边界验证（Claude 侧，
+  与上一个角度不同）。两者都用
+  `py -m unittest tests.<模块名> -v` 跑。
+
+> 本仓库**没有装 pytest**，用 `unittest`。
 - `tests/diag_cells.ps1` —— 读取指定单元格的公式与计算值，排查用。
