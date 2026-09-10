@@ -4,7 +4,10 @@
     [int]$Rows = 5,
     # 1-based data row index to leave completely blank in every mapped column.
     # 0 = no blank row. Probes how the mapper treats gaps in the source.
-    [int]$BlankAt = 0
+    [int]$BlankAt = 0,
+    # Comma-separated 1-based data row indices to HIDE (as if the user had
+    # filtered them out in Excel). e.g. '3,5'.
+    [string]$HideAt = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -127,6 +130,26 @@ try {
         foreach ($m in $resolved) { $ws.Cells.Item($row, $m.Column).Value2 = $values[$m.Role] }
     }
 
+    # Hide AFTER writing: a hidden row still holds its values, which is the
+    # whole point - the mapper must skip it by visibility, not by emptiness.
+    $hidden = New-Object System.Collections.Generic.List[int]
+    foreach ($token in ($HideAt -split ',')) {
+        $n = 0
+        if (-not [int]::TryParse($token.Trim(), [ref]$n)) { continue }
+        if ($n -lt 1 -or $n -gt $Rows) { throw "HideAt index $n out of range 1..$Rows" }
+        $rowRange = $ws.Rows.Item($headerRow + $n)
+        try { $rowRange.Hidden = $true } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($rowRange) }
+        $hidden.Add($n)
+    }
+
+    # A hidden row cannot be read back through the same path as a visible one,
+    # so assert visibility separately from value content.
+    foreach ($n in $hidden) {
+        $rowRange = $ws.Rows.Item($headerRow + $n)
+        try { $isHidden = [bool]$rowRange.Hidden } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($rowRange) }
+        if (-not $isHidden) { throw "Row $($headerRow + $n) was not actually hidden." }
+    }
+
     # Assert the values actually stuck. A protected sheet, a merged-cell
     # anchor, or a silently-ignored write would otherwise yield an all-blank
     # fixture that every downstream assertion passes against.
@@ -164,7 +187,7 @@ try {
     }
 
     Write-Output ('fixture=' + $out)
-    Write-Output ('source=' + $source + '  headerRow=' + $headerRow + '  rows=' + $Rows + '  blankAt=' + $BlankAt)
+    Write-Output ('source=' + $source + '  headerRow=' + $headerRow + '  rows=' + $Rows + '  blankAt=' + $BlankAt + '  hidden=[' + ($hidden -join ',') + ']')
     foreach ($m in $resolved) { Write-Output ('  ' + $m.Role.PadRight(9) + $m.Letter.PadRight(4) + 'col' + $m.Column) }
 }
 finally {

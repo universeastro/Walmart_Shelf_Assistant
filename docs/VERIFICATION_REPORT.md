@@ -388,6 +388,114 @@ Additional Image URL 2 (+) … Additional Image URL 7 (+)
 **是 `$null` 本身，不是属性赋值语法。** 但同一循环写成最小复现脚本却**无法重现**，
 机制未能定位，因此**如实记为「已观测到的陷阱」而非「已解释的行为」**。
 
+---
+
+## 10. 导出范围：隐藏行跳过（2026-09-10）
+
+### 10.1 功能
+
+`excel_mapper.ps1` 新增 `-RowMode Visible|All`（默认 `Visible`），GUI 增加
+「导出范围」单选组。`Visible` 下源表中被隐藏的行（用户在 Excel 里筛选掉的）
+**不写入目标**，并计入 JSON 的 `rowsHiddenSkipped`。
+
+需求文档未提及此行为，属于实现方主动补的可用性特性。**默认值 `Visible` 与原行为
+不一致**（原行为等价于 `All`），这一点值得注意——但它符合「筛选后导出可见行」
+的常见预期。
+
+### 10.2 工具
+
+- `tests/make_multirow_fixture.ps1` 新增 `-HideAt '3,5'`——写入后把指定数据行
+  `Hidden = $true`。**先写后藏**，藏起来的行仍持有值，因此映射器只能靠可见性
+  而非「内容为空」来跳过它。生成后单独复读 `.Hidden` 断言确实藏上了。
+- `tests/verify_multirow.ps1` 新增 `-HideAt` / `-RowMode`，期望行数由
+  `$included` 列表推导（空行去掉，`Visible` 模式下隐藏行再去掉），
+  隐藏行的原始行号仍锚定到生成器写入的值，所以**行序错位无法藏在期望值后面**。
+- `tests/verify_visible_rows.ps1`（Codex 提供）——独立实现，用
+  `UsedRange.Value2` 一次性读入二维数组比对，12 组硬编码列对。
+
+两套工具**实现路径不同**（逐格 COM vs 整块数组），结论一致，互为交叉验证。
+
+### 10.3 结果：全部通过
+
+| 场景 | rowsRead / rowsWritten | rowsHiddenSkipped | 逐格比对 |
+|---|---|---|---|
+| 5 行，藏第 3、5 行，`Visible` | 3 / 3 | 2 | 12 × 3 = 36 格 ✅ |
+| 5 行，藏第 3、5 行，`All` | 5 / 5 | 0 | 12 × 5 = 60 格 ✅ |
+| 5 行，藏第 3、5 行 + 第 4 行空，`Visible` | 2 / 2 | 2 | 12 × 2 = 24 格 ✅ |
+
+目标行从第 7 行起**连续排布、无空洞**，末行之后无溢出。
+`visible` 模式跳过的行数与 `rowsHiddenSkipped` 完全吻合。
+
+### 10.4 边界：全部行都被隐藏
+
+源表 3 行全部隐藏 + `Visible` 模式 → `rowsRead=0 rowsWritten=0 hiddenSkipped=3`，
+**仍生成合法的输出文件，退出码 0**。行为与空源表一致，不是崩溃也不是报错。
+
+### 10.5 性能：无回归
+
+隐藏行判定给每行增加一次 `Rows.Item($row).Hidden` 的 COM 调用。
+372 行实测 **19 秒 vs 改造前的 20 秒**——差异在噪声范围内，**无性能回归**。
+
+### 10.6 格式保留
+
+数据验证 **30/30 持平**，公式 **0/0**（该模板无公式）。条件格式
+**48 → 43**，`lost=[AA7:AA10000, AB7:AB10000] gained=[AA7:AB10000]`——
+正是第 2.2 节记录的**相邻同条件规则合并**，覆盖范围等价，非缺陷。
+
+### 10.7 参数校验
+
+`-RowMode Bogus` 被 `ValidateSet` 拒绝，**退出码 1**，不产生输出文件。
+GUI 只会从单选按钮传合法值；即便传错，`app.py` 解析不到 JSON 会回退到
+`stderr` 文本，不会静默显示「处理完成」。
+
+### 10.8 本轮一个被证伪的怀疑（如实记录）
+
+审查 Codex 的 `tests/verify_visible_rows.ps1` 时，我判断第 38 行
+`if ($y.GetLength(0) -ne $dest-1)` 会误报——理由是模板的条件格式一直延伸到
+第 10000 行，`UsedRange` 的行数应远大于实际数据行。
+
+**实测证伪**：该脚本实际输出 `PASS: ... data rows=1; compared cells=12`，
+在隐藏行夹具上也通过。`UsedRange` 并未被条件格式撑大。
+
+这是本轮我**第二次先猜机制、后被实验推翻**。记录在此，作为「先验后说」的提醒。
+
+### 10.9 README 的主要使用场景：AutoFilter 筛选（已补测）
+
+README 让用户「先在 Excel/WPS 中保存筛选或隐藏状态，再导入文件」——
+**筛选才是这个功能的主要路径**，而 10.3 测的是手工隐藏（`Rows.Item(r).Hidden = $true`）。
+两者在 Excel 对象模型里是否走同一条路，必须取证，不能推测。
+
+**结论：走的是同一条路——AutoFilter 筛掉的行同样报告 `Hidden = $true`。**
+
+实测工具 `tests/verify_autofilter.ps1`（已入库，可重复运行）。5 行夹具，
+对标题列施加 `AutoFilter(title, "Sample product 3")`：
+
+| 源行 | 标题值 | `.Hidden` |
+|---|---|---|
+| 1（表头） | 标题 | False |
+| 2 | Sample product 1 | True |
+| 3 | Sample product 2 | True |
+| **4** | **Sample product 3** | **False** |
+| 5 | Sample product 4 | True |
+
+映射器 `Visible` 模式：`rowsRead=1 rowsWritten=1`，目标 `H7 = Sample product 3`，其后无溢出。
+
+> 该测试同时断言「筛选确实藏了行」——否则一个没生效的筛选会让整个断言变成空转。
+
+### 10.10 一个计数瑕疵：`rowsHiddenSkipped` 把隐藏的空行也算进去了
+
+同一实测中 `rowsHiddenSkipped=6`，但夹具只有 5 行数据、只筛掉 4 行。多出的 2 行是
+**UsedRange 内的空行**——源表 `UsedRange` 为 `$A$1:$BC$8`，第 7、8 行无值、仅有格式，
+AutoFilter 把这两行一并隐藏，于是被计入。
+
+**这不是数据缺陷**：这两行本就没有内容，旧行为下同样会当空行跳过，
+输出结果完全正确（只写 1 行）。**受影响的只有日志里的那个数字**：
+用户筛掉 4 行，界面却显示「跳过 6 行」。
+
+若要精确，应在计数前先判定该行是否真的有数据。**优先级低**，已记入 `CODE_REVIEW.md` 第 9 项。
+`tests/verify_autofilter.ps1` 因此**故意不对 `rowsHiddenSkipped` 取值做断言**——
+断言一个已知不准的数字只会把瑕疵固化成契约。
+
 > **映射器不受影响**：`excel_mapper.ps1` 第 329 行显式做了
 > `if ($null -eq $value) { $value = '' }`，从不把 `$null` 赋给 Excel 单元格。
 > 这一行现在看是**必要的保险**，不要删。

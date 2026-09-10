@@ -11,7 +11,7 @@
 - `excel_mapper.ps1` —— 实际映射逻辑，PowerShell + **Excel COM**
 - `文件/` —— A 模板、B 模板、需求文档
 - `docs/VERIFICATION_REPORT.md` —— **独立验证报告，动手前先看**
-- `docs/CODE_REVIEW.md` —— **代码审查，8 项潜伏问题与健壮性缺陷（含修复状态表）**
+- `docs/CODE_REVIEW.md` —— **代码审查，9 项潜伏问题与健壮性缺陷（含修复状态表）**
 - `tests/fixtures/A_sample.xls` —— 测试夹具（**合成数据**），校验的唯一客观依据
 - `.claude/skills/` —— Claude 侧的校验流程与脚本。**这里不会自动加载到你**，
   但下面「改完必须验证」一条已把该跑的脚本写全，可直接执行。
@@ -77,7 +77,13 @@ Excel 会合并条件相同的相邻列规则（48 条 → 43 条），覆盖范
 - ~~多行输入未测~~ → **已补齐**：`tests/make_multirow_fixture.ps1` +
   `tests/verify_multirow.ps1`。实测 5 行、含空行的 5 行、**372 行（真实规模，
   4464 格）全部通过**，行序与行数对应正确且无溢出。见验证报告第 9 节。
-  仍未覆盖：源表多行表头、源行数超过模板容量。
+- ~~隐藏行跳过未测~~ → **已补齐**：`-HideAt` + `-RowMode`。
+  `Visible`/`All` 两种模式、含空行组合、**全部行隐藏**的边界均已通过，
+  372 行无性能回归。见验证报告第 10 节。
+- ~~AutoFilter 筛选是否走同一条隐藏路径未测~~ → **已补齐**：实测确认
+  AutoFilter 筛掉的行同样报告 `Hidden = $true`，与手工隐藏殊途同归。
+  见 `tests/verify_autofilter.ps1` 与验证报告 10.9。
+- 仍未覆盖：源表多行表头、源行数超过模板容量（实测上限 372 行）。
 - 全部验证跑在合成样本上，未经真实业务文件验证。
 
 ## 两个必须知道的实测结论
@@ -105,7 +111,12 @@ GUI 写进日志面板。**这是业务侧要拍板的事——不要擅自改�
   条件格式覆盖范围与公式。用法 `py tests/compare_ooxml.py <模板> <输出>`。
 - `tests/make_formula_fixture.ps1` —— 生成含公式的模板夹具。
 - `tests/make_multirow_fixture.ps1` —— 由 `A_sample.xls` 展开成 N 行夹具，
-  `-BlankAt n` 制造空行。列按**表头名**定位。
+  `-BlankAt n` 制造空行，`-HideAt '3,5'` 隐藏指定行（**先写后藏**，藏起来的行
+  仍持有值，所以映射器只能靠可见性跳过它）。列按**表头名**定位。
 - `tests/verify_multirow.ps1` —— 生成夹具 → 跑映射器 → 逐格比对行序与行数。
-  `-Rows 372` 为真实规模。
+  `-Rows 372` 为真实规模；`-RowMode All|Visible` 与 `-HideAt` 测隐藏行语义。
+- `tests/verify_visible_rows.ps1` —— Codex 侧的独立实现，整块
+  `UsedRange.Value2` 读入二维数组比对，与上一个工具路径不同，互为交叉验证。
+- `tests/verify_autofilter.ps1` —— 对夹具施加**真实 AutoFilter**（README 让用户
+  做的第一步），断言筛掉的行被跳过、唯一可见行落到目标。无参数直接跑。
 - `tests/diag_cells.ps1` —— 读取指定单元格的公式与计算值，排查用。

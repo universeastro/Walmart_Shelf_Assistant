@@ -7,7 +7,7 @@
 | 被审查版本 | `8cfafc5`（全文 295 行通读） |
 | 审查方式 | 逐行阅读 + 对模板实测取证 |
 
-**结论：无当前故障。** 映射功能正确（已验证 12/12）。以下 7 项均为
+**结论：无当前故障。** 映射功能正确（已验证 12/12）。以下 9 项均为
 **潜伏问题与健壮性缺陷**——现在不发作，但会在换模板、加字段或上真实数据时发作。
 
 按严重程度排序。第 1、2 项有实测证据，且**修复成本很低**，建议优先处理。
@@ -333,6 +333,48 @@ $targetWb = $excel.Workbooks.Open((Resolve-Path $TargetPath).Path, 0, $false)
 
 ---
 
+## 9. `rowsHiddenSkipped` 把「隐藏的空行」也计入（低，仅影响日志数字）
+
+**位置**：`excel_mapper.ps1` 的 `-RowMode Visible` 隐藏行分支
+
+```powershell
+if ($isHidden -and $RowMode -eq 'Visible') {
+    $result.rowsHiddenSkipped++
+    continue
+}
+```
+
+判据只有 `Hidden`，**不看该行有没有数据**。而源表的 `UsedRange` 常比数据区
+多出若干空行（仅有格式），这些行同样会被隐藏（手工隐藏时未必，但 **AutoFilter
+筛选会连它们一起藏**），于是被计入跳过数。
+
+### 实测证据（2026-09-10）
+
+5 行夹具、标题列筛选 `= "Sample product 3"`，源表 `UsedRange = $A$1:$BC$8`，
+第 7、8 行无值仅有格式：
+
+```
+rowsRead=1 rowsWritten=1 rowsHiddenSkipped=6
+```
+
+只有 4 行是用户筛掉的数据行，另 2 行是被筛选连带隐藏的空行。
+**输出正确**（只写 1 行，目标 H7 = `Sample product 3`），
+**只是 GUI 日志会显示「跳过 6 行」**。
+
+### 影响
+
+用户可能据此以为自己筛掉了 6 行而回头核对——是困惑，不是数据事故。
+`tests/verify_autofilter.ps1` 已把该数字**排除在断言之外**。
+
+### 建议
+
+若要精确，在 `rowsHiddenSkipped++` 前加一次「该行是否有数据」的判定
+（复用第 257 行扫描数据行时已有的判空逻辑即可）。**不紧急**，
+但注意别把它和「空行压缩」的逻辑搅在一起——两者是独立的跳过原因，
+将来若要分别统计，应拆成两个计数器。
+
+---
+
 ## 建议处理顺序
 
 | 优先级 | 项 | 理由 |
@@ -344,3 +386,4 @@ $targetWb = $excel.Workbooks.Open((Resolve-Path $TargetPath).Path, 0, $false)
 | 中 | 4. 源表表头行数 | 需先确认业务实际 |
 | 低 | 6. COM 泄漏 | 第 5 项做完后大部分自动消失 |
 | 低 | 7. 只读打开 | 需实测验证 |
+| 低 | 9. `rowsHiddenSkipped` 计数 | 只影响日志数字，输出正确 |

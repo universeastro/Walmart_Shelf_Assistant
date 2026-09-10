@@ -2,6 +2,9 @@
     [int]$Rows = 5,
     # 1-based data row to leave blank in the source. 0 = no blank row.
     [int]$BlankAt = 0,
+    # Comma-separated 1-based data row indices to HIDE in the source, e.g. '3,5'.
+    [string]$HideAt = '',
+    [ValidateSet('Visible', 'All')][string]$RowMode = 'Visible',
     [string]$Target,
     [int]$DataStartRow = 7,
     [switch]$KeepOutput
@@ -53,12 +56,12 @@ $failures = New-Object System.Collections.Generic.List[string]
 $excel = $null; $wb = $null
 try {
     Write-Output "== generate fixture: rows=$Rows blankAt=$BlankAt =="
-    & $generator -OutputPath $fixture -Rows $Rows -BlankAt $BlankAt | ForEach-Object { Write-Output "   $_" }
+    & $generator -OutputPath $fixture -Rows $Rows -BlankAt $BlankAt -HideAt $HideAt | ForEach-Object { Write-Output "   $_" }
     if (-not (Test-Path -LiteralPath $fixture)) { throw 'Fixture generation failed.' }
 
     Write-Output '== run mapper =='
     $raw = & powershell -NoProfile -ExecutionPolicy Bypass -File $mapper `
-        -SourcePath $fixture -TargetPath $Target -OutputPath $output 2>&1
+        -SourcePath $fixture -TargetPath $Target -OutputPath $output -RowMode $RowMode 2>&1
     $exitCode = $LASTEXITCODE
     $json = $null
     try { $json = ($raw | Out-String).Trim() | ConvertFrom-Json } catch { }
@@ -69,9 +72,24 @@ try {
     Write-Output ("   exit=$exitCode success=$($json.success)")
     Write-Output ("   rowsRead=$($json.rowsRead) rowsWritten=$($json.rowsWritten) sheet=$($json.targetSheet)")
 
-    # A blank source row is dropped rather than copied, so the number of rows
-    # that reach the target is Rows minus the blanked one.
-    $expectedWritten = if ($BlankAt -ge 1 -and $BlankAt -le $Rows) { $Rows - 1 } else { $Rows }
+    # Which source rows should reach the target: the blank one is dropped, and
+    # in Visible mode so are the hidden ones. The survivors keep their ORIGINAL
+    # 1-based index, which stays anchored to the value the generator wrote
+    # (row index i always holds the '...$i' variant), so a row-order or
+    # row-count bug cannot hide behind a shifted expectation.
+    $hideSet = @()
+    foreach ($token in ($HideAt -split ',')) {
+        $n = 0
+        if ([int]::TryParse($token.Trim(), [ref]$n)) { $hideSet += $n }
+    }
+    $included = @()
+    for ($i = 1; $i -le $Rows; $i++) {
+        if ($i -eq $BlankAt) { continue }
+        if ($RowMode -eq 'Visible' -and $hideSet -contains $i) { continue }
+        $included += $i
+    }
+    $expectedWritten = $included.Count
+    Write-Output "   mode=$RowMode hidden=[$($hideSet -join ',')] expected rows=$expectedWritten"
     if ($json.rowsRead -ne $expectedWritten) { $failures.Add("rowsRead: expected $expectedWritten, got $($json.rowsRead)") }
     if ($json.rowsWritten -ne $expectedWritten) { $failures.Add("rowsWritten: expected $expectedWritten, got $($json.rowsWritten)") }
 
@@ -87,14 +105,14 @@ try {
     foreach ($m in $json.mappings) {
         if ($null -eq (Get-ExpectedValue $m.sourceColumn 1)) { continue }
         $col = ConvertTo-ColumnNumber $m.targetColumn
-        for ($k = 1; $k -le $expectedWritten; $k++) {
-            # Verified behaviour: a blank source row is DROPPED, not copied
-            # as an empty row. Rows after it shift up, so source row 4 lands
-            # on target row 9 when source row 3 was blank. This is compaction,
-            # not index preservation - asserting otherwise would have encoded
-            # a behaviour the mapper does not have.
-            $index = if ($BlankAt -ge 1 -and $k -ge $BlankAt) { $k + 1 } else { $k }
-            $targetRow = $DataStartRow + $k - 1
+        for ($k = 0; $k -lt $included.Count; $k++) {
+            # Verified behaviour: skipped source rows (blank, or hidden in
+            # Visible mode) are DROPPED, not copied as empty rows, and the
+            # survivors are placed contiguously starting at DataStartRow.
+            # This is compaction, not index preservation - asserting otherwise
+            # would encode a behaviour the mapper does not have.
+            $index = $included[$k]
+            $targetRow = $DataStartRow + $k
             $expected = Get-ExpectedValue $m.sourceColumn $index
             $got = [string]$ws.Cells.Item($targetRow, $col).Value2
             $checked++

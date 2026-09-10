@@ -4,7 +4,9 @@
     [Parameter(Mandatory = $true)]
     [string]$TargetPath,
     [Parameter(Mandatory = $true)]
-    [string]$OutputPath
+    [string]$OutputPath,
+    [ValidateSet('Visible', 'All')]
+    [string]$RowMode = 'Visible'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -219,6 +221,8 @@ $result = [ordered]@{
     targetSheet = ''
     rowsRead = 0
     rowsWritten = 0
+    rowsHiddenSkipped = 0
+    rowMode = $RowMode
     mappings = @()
     skipped = @()
     message = ''
@@ -312,6 +316,13 @@ try {
     $sourceDataStart = $sourceHeaderRow + 1
     $dataRows = New-Object System.Collections.Generic.List[int]
     for ($row = $sourceDataStart; $row -le $sourceLastRow; $row++) {
+        $sourceRowRange = $sourceWs.Rows.Item($row)
+        try { $isHidden = [bool]$sourceRowRange.Hidden }
+        finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($sourceRowRange) }
+        if ($isHidden -and $RowMode -eq 'Visible') {
+            $result.rowsHiddenSkipped++
+            continue
+        }
         $hasValue = $false
         foreach ($mapping in $resolvedMappings) {
             $value = Get-CellValue $sourceWs $row $mapping.Source.Column

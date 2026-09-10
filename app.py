@@ -16,12 +16,13 @@ class ShelfAssistant(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("沃尔玛上架助手")
-        self.geometry("760x470")
-        self.minsize(680, 420)
+        self.geometry("760x600")
+        self.minsize(680, 560)
         self.configure(bg="#f4f6f8")
         self.source_var = tk.StringVar()
         self.target_var = tk.StringVar()
         self.output_var = tk.StringVar()
+        self.row_mode_var = tk.StringVar(value="Visible")
         self.status_var = tk.StringVar(value="请选择文件 A 和文件 B")
         self.running = False
         self._build_ui()
@@ -52,14 +53,16 @@ class ShelfAssistant(tk.Tk):
         self._file_row(panel, 1, "文件 B（沃尔玛模板）", self.target_var, self._choose_target)
         self._file_row(panel, 2, "输出文件", self.output_var, self._choose_output)
 
-        options = ttk.LabelFrame(outer, text="处理方式")
+        options = ttk.LabelFrame(outer, text="导出范围")
         options.pack(fill="x", pady=(18, 0))
-        ttk.Label(
-            options,
-            text="目标表头会从多级表头中展开，优先按字段名称匹配；只有源字段没有标题时才使用文档中的列字母作为兜底。",
-            style="Hint.TLabel",
-            wraplength=650,
-        ).pack(anchor="w", padx=12, pady=12)
+        self.row_mode_buttons = []
+        for value, label in (
+            ("Visible", "仅可见行（跳过所有隐藏行，连续排列）"),
+            ("All", "全部数据行（包含隐藏行，连续排列）"),
+        ):
+            button = ttk.Radiobutton(options, text=label, variable=self.row_mode_var, value=value)
+            button.pack(anchor="w", padx=12, pady=7)
+            self.row_mode_buttons.append(button)
 
         bottom = ttk.Frame(outer)
         bottom.pack(fill="x", pady=(20, 0))
@@ -134,10 +137,14 @@ class ShelfAssistant(tk.Tk):
         self.status_var.set("正在处理...")
         self.running = True
         self.run_button.configure(state="disabled")
+        row_mode = self.row_mode_var.get()
+        for button in self.row_mode_buttons:
+            button.configure(state="disabled")
         self._write_log(f"开始处理：{source.name} -> {target.name}")
-        threading.Thread(target=self._run_worker, args=(source, target, output), daemon=True).start()
+        self._write_log("导出范围：" + ("仅可见行" if row_mode == "Visible" else "全部数据行（包含隐藏行）"))
+        threading.Thread(target=self._run_worker, args=(source, target, output, row_mode), daemon=True).start()
 
-    def _run_worker(self, source, target, output):
+    def _run_worker(self, source, target, output, row_mode="Visible"):
         command = [
             "powershell.exe",
             "-NoProfile",
@@ -151,6 +158,8 @@ class ShelfAssistant(tk.Tk):
             str(target),
             "-OutputPath",
             str(output),
+            "-RowMode",
+            row_mode,
         ]
         try:
             completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -163,11 +172,14 @@ class ShelfAssistant(tk.Tk):
     def _finish(self, payload, returncode):
         self.running = False
         self.run_button.configure(state="normal")
+        for button in self.row_mode_buttons:
+            button.configure(state="normal")
         if payload.get("success") and returncode == 0:
             self.status_var.set("处理完成")
             self._write_log(payload.get("message", "映射完成。"))
             self._write_log(f"输出文件：{payload.get('output', self.output_var.get())}")
             self._write_log(f"读取 {payload.get('rowsRead', 0)} 行，写入 {payload.get('rowsWritten', 0)} 行。")
+            self._write_log(f"跳过隐藏行：{payload.get('rowsHiddenSkipped', 0)} 行。")
             for item in payload.get("skipped", []):
                 self._write_log("跳过：" + item)
             messagebox.showinfo("处理完成", payload.get("message", "映射完成。"))
