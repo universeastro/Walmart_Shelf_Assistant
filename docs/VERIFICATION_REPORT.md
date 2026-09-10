@@ -4,7 +4,7 @@
 |---|---|
 | 日期 | 2026-09-10 |
 | 验证者 | Claude |
-| 被验证版本 | `8cfafc5` |
+| 被验证版本 | `8cfafc5`（第一轮）、`e7b1fcc`（第二轮，见第 7 节） |
 | 验证方式 | 独立复跑，**未采信 Codex 自产的 `B_filled.xlsx`** |
 | 复跑命令 | 见文末「如何复跑」 |
 
@@ -27,7 +27,7 @@
 
 ## 1. 映射正确性
 
-输入 `_docx_qa/A_sample.xls` → 输出由 `文件/B模板.xlsx` 生成。
+输入 `tests/fixtures/A_sample.xls` → 输出由 `文件/B模板.xlsx` 生成。
 
 数据写入**第 7 行**（表头 2-4 行，第 6 行是字段描述行，数据从第 7 行开始），位置正确。逐字段核对：
 
@@ -149,7 +149,7 @@ Excel 把**条件相同的相邻列规则合并**了：
 
 ### 4.2 真实业务文件
 
-现有全部验证跑在合成样本（`_docx_qa/A_sample.xls`，一行数据）上。
+现有全部验证跑在合成样本（`tests/fixtures/A_sample.xls`，一行数据）上。
 真实选品表动辄数百行，且列的实际情况可能更复杂。
 
 **建议**：上线前用一份真实 A/B 跑一遍完整验证。
@@ -158,12 +158,20 @@ Excel 把**条件相同的相邻列规则合并**了：
 
 ## 5. 工程问题
 
-### 5.1 测试夹具未纳入版本控制
+### 5.1 测试夹具未纳入版本控制 —— ✅ 已修复（2026-09-10）
 
-`_docx_qa/` 已被加入 `.gitignore`，而 `A_sample.xls`（唯一的测试夹具）就在里面。
+**原问题**：`_docx_qa/` 被 `.gitignore` 整体忽略，而 `A_sample.xls`（唯一的测试夹具）
+就在里面。夹具是判断代码对错的唯一客观依据，不入库则**校验无法复现**——
+`AGENTS.md` 里那条「改完必须验证」的命令，引用的是一个 clone 下来根本不存在的路径。
 
-夹具是判断代码对错的唯一客观依据，不入库则无法回归。**建议把夹具移到
-`tests/fixtures/`**——根目录 `.gitignore` 明确保留该路径下的 `.xlsx` / `.xls`。
+**已修复**：夹具移到 `tests/fixtures/A_sample.xls` 并入库，全部 7 处引用同步更新。
+
+夹具内容经确认是**纯合成数据**（`docProps` 创建者为 `Apache POI`，值全是
+`CUST-001` / `GROUP-001` / `Sample product` / `img.example` 占位符），
+表头是 A 表的字段名（属 schema，非业务数据），**不含真实商品信息**。
+
+> ⚠️ 该文件扩展名是 `.xls`，**实际内容是 xlsx**（ZIP 包）。Excel COM 能正常读取，
+> 但按扩展名判断类型的工具会误判。写脚本处理它时注意这一点。
 
 ### 5.2 `.ps1` 必须带 UTF-8 BOM
 
@@ -174,6 +182,37 @@ PowerShell 5.1 读无 BOM 的 `.ps1` 会按 GBK 解码，中文字面量全部�
 
 ---
 
+## 7. 第二轮验证（`e7b1fcc`，2026-09-10）
+
+Codex 把 B 模板的写入方式改为「复制到输出目录的 GUID 临时文件 → 可写打开 →
+`SaveAs` → `finally` 删除」，并补充了错误路径信息与 stdout 的 UTF-8 编码。
+基线哈希在校验前后**逐字节一致**，确认校验期间 Codex 未再写入。
+
+| 检查项 | 结果 |
+|---|---|
+| 映射正确性 | 12/12，数据行仍为第 7 行，退出码 0 |
+| 原模板完整性 | md5 前后同为 `4ec60063`，**逐字节未变** |
+| 临时文件清理 | 跑入空目录后其中仅有 `out.xlsx`，全仓库无 `~$` 与 `.walmart_shelf_assistant_*` |
+| 失败后清理 | 构造 `SaveAs` 之后的失败路径，仍无残留 |
+| 错误路径 JSON | 源/目标不存在时均输出合法 JSON（`errorLine` 指向 235/238 行、`errorType=ItemNotFoundException`），退出码 1 |
+| 输出目录自动创建 | 多级不存在的路径可自动创建 |
+| 格式保留 | 57/57 部件；数据验证 30/30；条件格式 48→43 为已知的相邻列合并误报，覆盖等价 |
+| 子进程编码 | `app.py` 以 `utf-8` 解码，与 mapper 新设的 stdout UTF-8 配套 |
+
+**一个被实测证伪的怀疑（记录下来以免后人重走）**：切换 `SaveCopyAs → SaveAs` 时
+怀疑会丢格式——因为 `SaveAs` 会按扩展名推断文件格式（`.csv` 会退化成 CSV，
+丢掉全部格式和多张工作表），而 `SaveCopyAs` 不会。实测把输出命名为 `out.csv`，
+落盘文件头是 `PK..`（ZIP）、268KB 完整工作簿，**格式并未被转换**。
+该风险不成立。但若将来换用带 `FileFormat` 参数的重载，需要重新评估。
+
+**本轮新增发现**：`output` 字段可能指向一个不存在的路径，见
+`CODE_REVIEW.md` 第 8 项。
+
+**未覆盖**：公式保留（模板公式数仍为 0）、真实业务文件、多行输入——
+三项缺口与第一轮完全相同，**本轮没有缩小任何一项**。
+
+---
+
 ## 6. 如何复跑验证
 
 已固化为项目 skill，可直接调用：
@@ -181,7 +220,7 @@ PowerShell 5.1 读无 BOM 的 `.ps1` 会按 GBK 解码，中文字面量全部�
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .claude/skills/verify-mapping/scripts/verify_mapping.ps1 `
-  -SourcePath _docx_qa/A_sample.xls `
+  -SourcePath tests/fixtures/A_sample.xls `
   -TargetPath 文件/B模板.xlsx
 ```
 

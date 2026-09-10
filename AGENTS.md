@@ -11,7 +11,10 @@
 - `excel_mapper.ps1` —— 实际映射逻辑，PowerShell + **Excel COM**
 - `文件/` —— A 模板、B 模板、需求文档
 - `docs/VERIFICATION_REPORT.md` —— **独立验证报告，动手前先看**
-- `docs/CODE_REVIEW.md` —— **代码审查，7 项潜伏问题与健壮性缺陷**
+- `docs/CODE_REVIEW.md` —— **代码审查，8 项潜伏问题与健壮性缺陷（含修复状态表）**
+- `tests/fixtures/A_sample.xls` —— 测试夹具（**合成数据**），校验的唯一客观依据
+- `.claude/skills/` —— Claude 侧的校验流程与脚本。**这里不会自动加载到你**，
+  但下面「改完必须验证」一条已把该跑的脚本写全，可直接执行。
 
 ## 硬性约束
 
@@ -41,7 +44,7 @@ PowerShell 5.1 读无 BOM 的 `.ps1` 按 GBK 解码，中文字面量全乱、�
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .claude/skills/verify-mapping/scripts/verify_mapping.ps1 `
-  -SourcePath _docx_qa/A_sample.xls `
+  -SourcePath tests/fixtures/A_sample.xls `
   -TargetPath 文件/B模板.xlsx
 ```
 

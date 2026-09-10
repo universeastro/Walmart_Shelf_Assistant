@@ -53,7 +53,7 @@ ls -la --time-style=+%H:%M *.py *.ps1 *.md
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .claude/skills/verify-mapping/scripts/verify_mapping.ps1 `
-  -SourcePath _docx_qa/A_sample.xls `
+  -SourcePath tests/fixtures/A_sample.xls `
   -TargetPath 文件/B模板.xlsx
 ```
 

@@ -19,7 +19,7 @@
 Codex 在 `39a28bb` 中处理了第 1、2、3、6、7 项。**已复验通过**：
 
 ```powershell
-verify_mapping.ps1 -SourcePath _docx_qa/A_sample.xls -TargetPath 文件/B模板.xlsx
+verify_mapping.ps1 -SourcePath tests/fixtures/A_sample.xls -TargetPath 文件/B模板.xlsx
 # -> 数据行仍为第 7 行，12/12 一致，退出码 0
 ```
 
