@@ -112,7 +112,8 @@ git diff <基线提交> -- <改动的文件>
 提交信息要写清楚**改了什么**和**验证了什么**，让下次审查能快速定位：
 
 ```bash
-git add -A
+# ⚠️ 显式列出文件名，不要用 git add -A（见第 0 步的红线说明）
+git add <文件1> <文件2>
 git commit -F - <<'EOF'
 <类型>: <一句话说明>
 
@@ -163,3 +164,19 @@ git push origin main
 git config --local http.proxy http://127.0.0.1:7890
 git config --local https.proxy http://127.0.0.1:7890
 ```
+
+---
+
+## 触发方式（2026-09-10 与用户确认）
+
+**没有钩子能感知「Codex 操作完成」**——hooks 只能挂在我自己的生命周期事件上，
+Codex 是另一个进程，它的状态我看不到。所以采用的是**定时轮询 + 通过后自动推送**：
+
+- 定时任务 `1cd84df6`，cron `3,13,23,33,43,53 * * * *`（每 10 分钟，避开整点）
+- **只有本会话存活且空闲时才会触发**；状态持久化在 `.claude/scheduled_tasks.json`
+- 复发任务 **7 天后自动过期**，到期需重建
+- 轮询的廉价路径：`git status --short` 与 `git log origin/main..HEAD` 同时为空 → 一句话结束，不做任何事
+
+轮询会被仓库里的游离文件干扰，所以 `.gitignore` 必须挡住
+`.claude/scheduled_tasks.{json,lock}` 与 `/out_*.xlsx`（手动试跑产物）。
+**若哪天 `git status` 里冒出这类文件，说明忽略规则失效——报告它，不要顺手提交它。**
