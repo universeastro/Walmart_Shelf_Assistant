@@ -457,6 +457,80 @@ except Exception as exc:
 
 ---
 
+## 12. 每次处理都弹出 PowerShell 黑框（中，用户可见）
+
+**用户报告**：每次使用都会弹出一个 PowerShell 窗口。作为一个面向用户的 app，
+不可接受。
+
+### 成因
+
+`_run_worker()` 启动映射脚本时**没有传 `creationflags`**：
+
+```python
+completed = subprocess.run(command, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+```
+
+程序以 `--windowed` 打包，**自身没有控制台**。而 `powershell.exe` 是控制台程序——
+无控制台的进程启动控制台程序时，Windows 会**给子进程新分配一个控制台窗口**。
+映射要跑约 20 秒，那个框就停留约 20 秒。
+
+### 实测证据（2026-09-10）
+
+用一个**同样 `--windowed` 打包**的探针 exe（自身无控制台，与真实 app 一致）
+启动 PowerShell 子进程，由**子进程自己**通过 `GetConsoleWindow()` +
+`IsWindowVisible()` 报告结果——绕开 stdout 重定向与代码页的干扰：
+
+| 调用方式 | 子进程自报 |
+|---|---|
+| 无 `creationflags`（当前实现） | `hwnd=2364656 visible=True` |
+| `creationflags=CREATE_NO_WINDOW` | `hwnd=0 visible=False` |
+
+### 修法
+
+```python
+completed = subprocess.run(
+    command, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    creationflags=subprocess.CREATE_NO_WINDOW,
+)
+```
+
+**只有这一处**，其余逻辑一律不动。
+
+`app.py` 靠 stdout 拿映射脚本输出的 JSON，所以必须确认加了标志后 stdout
+仍能正常捕获。已实测：
+
+```
+returncode    : 0
+stdout lines  : 1
+json parsed   : True
+rowsRead      : 1 rowsWritten: 1
+output exists : True 268920
+```
+
+### 注意
+
+`subprocess.CREATE_NO_WINDOW` 是 Windows 专有常量。本项目本来就是 Windows 专用
+（用了 `ctypes.windll`），直接写即可；若要更保守可写
+`getattr(subprocess, "CREATE_NO_WINDOW", 0)`。
+
+### 改完必须重新打包并重装
+
+用户桌面的快捷方式指向 `%LOCALAPPDATA%\Programs\WalmartShelfAssistant\` 里
+**已安装的副本**，不会随源码改动自动更新：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+```
+
+### 验证方式
+
+改后重装并启动，点一次「开始填充」：**处理期间不应出现任何黑框**，
+摘要与输出文件应与改动前一致。这一条只能用眼睛确认，没有自动化断言能替代。
+
+---
+
 ## 建议处理顺序
 
 | 优先级 | 项 | 理由 |
@@ -471,3 +545,4 @@ except Exception as exc:
 | 低 | 9. `rowsHiddenSkipped` 计数 | 只影响日志数字，输出正确 |
 | 低 | 10. 空值单元格也设对齐 | 看不出差别，不建议现在动 |
 | 低 | 11. 关窗口时不收尾 | 仅影响关闭路径；但兜底代码自己是假的，值得顺手加固 |
+| 中 | 12. 弹出 PowerShell 黑框 | 一行修复、用户每次都看得见，投入产出比最高 |
