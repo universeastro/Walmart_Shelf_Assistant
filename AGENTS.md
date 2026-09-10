@@ -136,6 +136,25 @@ conditionalFormatting 的 sqref 覆盖和公式。改动涉及**单元格格式*
 原因未定位（最小复现脚本重现不出来），但现象稳定。
 `excel_mapper.ps1` 第 329 行把 `$null` 转成 `''` 正是因此**必须保留**。
 
+## 打包（已实测，2026-09-10）
+
+入口是 `build.ps1`，产出 `dist\WalmartShelfAssistant\`（onedir，约 26 MB）。
+**`.spec` 不入库**（已加进 `.gitignore`），参数写在 `build.ps1` 里以免漂移。
+
+三条实测结论，改打包参数前先看：
+
+1. **`app.py` 不需要任何冻结适配。** 实测冻结后
+   `Path(__file__).resolve().parent` == `_internal`，而
+   `--add-data "excel_mapper.ps1;."` 正好把脚本放进 `_internal\`，
+   `MAPPER` 自然解析正确。**不要**去加 `sys._MEIPASS` 判断，那是多余的。
+2. **目标电脑不需要装 Python。** 实测运行中的 exe 加载的是
+   `_internal\python314.dll` / `tcl90.dll`，与系统 Python 无关。
+3. **目标电脑必须装 Microsoft Excel。** 硬门槛，`excel_mapper.ps1` 走
+   `New-Object -ComObject Excel.Application`，打包绕不过去。见 README。
+
+`build.ps1` 末尾会断言 `_internal\excel_mapper.ps1` 存在——少了它程序能启动、
+点「开始填充」才报错，属于最难排查的一类失败。
+
 ## 写 Tk 多线程测试必须用 mainloop()，不能用 update() 忙等
 
 **只有当主线程阻塞在 `mainloop()` 里**（`_tkinter` 的 `dispatching` 已置位）、

@@ -22,8 +22,11 @@ env/
 htmlcov/
 
 # ---------- PyInstaller 打包产物 ----------
+# 构建入口是 build.ps1（参数写在脚本里），.spec 是它每次重新生成的中间产物，
+# 不入库以免与脚本里的参数漂移；同时避免它出现在 git status 里干扰定时轮询。
 /build/
 /dist/
+*.spec
 *.manifest
 
 # ---------- Node（若 GUI 走 Electron 分支） ----------

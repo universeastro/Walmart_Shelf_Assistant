@@ -12,9 +12,13 @@
 
 ## 运行环境
 
+直接运行源码时需要：
+
 - Windows
 - Microsoft Excel（用于读取 `.xls`、`.xlsx` 并保留模板格式）
 - Python 3.10 或更高版本
+
+使用下面的打包版本时，目标电脑**只需 Microsoft Excel**，不必安装 Python。
 
 ## 启动
 
@@ -33,6 +37,24 @@ python app.py
 APP 会在开始处理或关闭窗口时保存这三个路径，下次启动自动恢复，无需重新浏览。可直接编辑路径或点击“浏览...”更换文件；清空路径后关闭也会记住空值。配置保存在当前用户的 `%LOCALAPPDATA%\WalmartShelfAssistant\settings.json`，不会修改源文件或模板。启动时若文件 A 或 B 已移动、删除或无法访问，会自动清空对应路径，请重新浏览选择；输出路径保留，即使输出文件尚未生成。
 
 程序会选择 B 中包含多级表头的商品内容工作表，使用叶子字段名称匹配目标列，并将 A 的数据值写入目标数据行。原始文件不会被覆盖。
+
+## 打包与迁移到其他电脑
+
+打包成免安装版本，拷到其他 Windows 电脑上双击即可运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
+```
+
+产物是 `dist\WalmartShelfAssistant\` 整个文件夹（约 26 MB）。**把这个文件夹整体拷贝过去**，双击其中的 `WalmartShelfAssistant.exe` 即可。
+
+目标电脑**必须安装 Microsoft Excel**——映射通过 Excel COM 自动化完成（需求第 15 条要求保留模板格式，这一步无法用其他库替代）。除此之外无需任何安装：Python 已打进包里，PowerShell 是 Windows 自带的。
+
+三点说明：
+
+- 路径配置保存在**目标电脑自己**的 `%LOCALAPPDATA%\WalmartShelfAssistant\` 下，不随文件夹迁移，首次运行需重新选择 A/B 文件。
+- 打包出的 exe 未做代码签名，首次在别的电脑上运行会被 Windows SmartScreen 拦截，选择“更多信息”→“仍要运行”即可。
+- `excel_mapper.ps1` 以明文形式放在 `_internal\` 里。若要调整映射规则，可直接编辑该文件，无需重新打包。
 
 ## 当前模板的实际映射
 

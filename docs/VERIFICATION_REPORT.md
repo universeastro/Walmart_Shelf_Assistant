@@ -805,3 +805,74 @@ py -m unittest tests.test_ui_layout -v
 py -m unittest tests.verify_ui_integration -v   # 需 Excel，约 16 秒
 py tests/smoke_completion_dialog.py
 ```
+
+## 14. 打包与迁移验证（2026-09-10）
+
+目标：把程序打包成免安装版本，拷到其他 Windows 电脑上直接运行。
+入口脚本 `build.ps1`，产物 `dist\WalmartShelfAssistant\`（onedir，约 26 MB）。
+
+### 14.1 唯一的硬门槛
+
+**目标电脑必须安装 Microsoft Excel。** `excel_mapper.ps1` 第 249 行走
+`New-Object -ComObject Excel.Application`，这是需求第 15 条「不破坏模板格式」
+的代价——换 openpyxl 就不用装 Excel，但会丢图表与条件格式。
+**没有任何打包手段能绕过这一条。**
+
+除此之外目标机不需要任何安装：Python 打进包里，PowerShell 是系统自带。
+
+### 14.2 实测结论
+
+| 验证项 | 方法 | 结果 |
+|---|---|---|
+| 打包是否可行 | PyInstaller 6.22.2 + Python 3.14.7 + Tk 9.0 | 成功 |
+| 冻结后 `APP_DIR` 指向哪 | 最小探针 exe（同样 `--add-data` 机制） | `_internal`，脚本就在那 → **`app.py` 零改动** |
+| 冻结版能否跑完整映射 | 把真实 `app.py` 打包成控制台 exe，驱动 `run_mapping()` | **20.8 秒跑通**，状态「处理完成」，输出 268920 字节 |
+| 是否依赖目标机的 Python | 查运行中进程的已加载模块 | 加载 `_internal\python314.dll` / `tcl90.dll`，**与系统 Python 无关** |
+| 包内 mapper 与源码是否一致 | md5 | `630dbd14` == `630dbd14`，逐字节一致 |
+| 最终 exe 能否启动 | 双击运行 | 正常存活 |
+
+**为什么 `app.py` 不用改**：`MAPPER = APP_DIR / "excel_mapper.ps1"`，
+而 `APP_DIR = Path(__file__).resolve().parent`；冻结后 `__file__` 被
+PyInstaller 设为 `_internal\app.py`，`--add-data "excel_mapper.ps1;."`
+又正好把脚本放进 `_internal\`，两边自然对上。
+**不要**为此加 `sys._MEIPASS` 判断，那是多余的。
+
+### 14.3 构建脚本的断言与证伪
+
+`build.ps1` 末尾断言 `_internal\excel_mapper.ps1` 存在。这条不是装饰——
+少了它程序**能正常启动**，直到用户点「开始填充」才报错，属于最难排查的一类失败。
+
+证伪：把 `--add-data` 那一行删掉再跑，脚本如期抛错、退出码 1：
+
+```
+OperationStopped: (excel_mps...into _internal\:String) [], RuntimeException
+FullyQualifiedErrorId : excel_mapper.ps1 was not bundled into _internal\
+```
+
+### 14.4 打包形态的取舍
+
+选 **onedir** 而非 onefile：
+
+- onefile 每次启动要把 26 MB 解压到临时目录，慢 3-5 秒；杀软误报率也更高
+- onedir 里 `excel_mapper.ps1` 是**明文文件**，改映射规则直接编辑即可，无需重新打包
+- 分发时压缩成 zip，便利性与单文件无异
+
+`.spec` 不入库（已加进 `.gitignore`）：构建参数写在 `build.ps1` 里，
+`.spec` 只是它每次重新生成的中间产物，入库反而会与脚本参数漂移。
+
+### 14.5 未覆盖（重要）
+
+- **没有第二台电脑，全部验证在本机完成。** 「拷过去能用」是由
+  「不依赖系统 Python + 不依赖绝对路径 + 包内 mapper 与源码一致」推出的，
+  **没有在干净机器上真跑过**。这是本轮最大的敞口。
+- **目标机的 Excel 版本与位数未验证**，只在本机 Excel 上测过。
+- **32 位 / ARM64 Windows 未测**，当前产物是 x64。
+- **未签名 exe 的 SmartScreen 拦截与杀软误报未实测**（行为可预期，但没验）。
+- **界面在高 DPI 缩放下的表现未测**（沿用第 13.6 节）。
+
+### 14.6 复跑方式
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
+```
+退出码 0 打包成功 / 非 0 失败（含 mapper 未打入包的断言）。
