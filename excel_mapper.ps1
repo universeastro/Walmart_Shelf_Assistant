@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$SourcePath,
     [Parameter(Mandatory = $true)]
@@ -99,22 +99,30 @@ function Find-TargetColumns($Worksheet) {
     $maxColumn = $used.Column + $used.Columns.Count - 1
     $headerRows = New-Object System.Collections.Generic.List[int]
     $descriptionRow = $null
+    $leafHeaderRow = $null
 
-    # The supplied Walmart template uses rows 2-5 as hierarchical headers.
-    # Detect the last contiguous header row by looking for the required leaf labels.
-    for ($row = $used.Row; $row -le [math]::Min($maxRow, 8); $row++) {
-        $nonEmpty = 0
+    # Find the row containing the leaf field names (SKU, Product Name, ...).
+    # Rows above it are the hierarchical group headers. Rows below it contain
+    # XML names and descriptions and must not participate in label matching.
+    for ($row = $used.Row; $row -le [math]::Min($maxRow, 10); $row++) {
+        $skuFound = $false
+        $productNameFound = $false
         for ($column = $used.Column; $column -le $maxColumn; $column++) {
-            if ((Normalize-Text (Get-CellText $Worksheet $row $column))) { $nonEmpty++ }
+            $text = Normalize-Text (Get-CellText $Worksheet $row $column)
+            if ($text -eq 'sku') { $skuFound = $true }
+            if ($text -eq 'product name') { $productNameFound = $true }
         }
-        if ($nonEmpty -gt 0) { $headerRows.Add($row) }
+        if ($skuFound -and $productNameFound) {
+            $leafHeaderRow = $row
+            break
+        }
     }
-    if ($headerRows.Count -eq 0) { throw '目标工作表没有可识别的表头。' }
-
-    # Row 1 is the version marker in the template, not a field header.
-    $headerRows = @($headerRows | Where-Object { $_ -gt $used.Row })
-    if ($headerRows.Count -eq 0) { $headerRows = @($used.Row) }
-    $headerLastRow = ($headerRows | Measure-Object -Maximum).Maximum
+    if ($null -eq $leafHeaderRow) { throw '目标工作表没有可识别的字段表头。' }
+    for ($row = $used.Row; $row -le $leafHeaderRow; $row++) {
+        if ($row -gt $used.Row) { $headerRows.Add($row) }
+    }
+    if ($headerRows.Count -eq 0) { $headerRows.Add($leafHeaderRow) }
+    $headerLastRow = $leafHeaderRow
 
     for ($row = $headerLastRow + 1; $row -le [math]::Min($maxRow, $headerLastRow + 2); $row++) {
         $sample = Normalize-Text (Get-CellText $Worksheet $row ($used.Column + 3))
@@ -211,7 +219,10 @@ try {
         @{ Key = '小平台专用链接6'; Names = @('小平台专用链接 6', '小平台专用链接6'); Fallback = 'AQ'; Targets = @('Additional Image URL 5 (+)') },
         @{ Key = '小平台专用链接7'; Names = @('小平台专用链接 7', '小平台专用链接7'); Fallback = 'AS'; Targets = @('Additional Image URL 6 (+)') },
         @{ Key = '小平台专用链接8'; Names = @('小平台专用链接 8', '小平台专用链接8'); Fallback = 'AU'; Targets = @('Additional Image URL 7 (+)') },
-        @{ Key = '父SKU'; Names = @('父SKU'); Fallback = 'E'; Targets = @('Variant Group ID') },
+        # The supplied A template has an empty E header; preserve the
+        # documented E-column mapping instead of treating the nearby 父SKU
+        # helper column B as the source for Variant Group ID.
+        @{ Key = '父SKU'; Names = @(); Fallback = 'E'; Targets = @('Variant Group ID') },
         @{ Key = '代理链接100*100缩率图'; Names = @('代理链接100*100缩率图'); Fallback = 'AX'; Targets = @('Swatch Image URL') }
     )
 

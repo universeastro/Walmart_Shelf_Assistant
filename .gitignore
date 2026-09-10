@@ -48,6 +48,7 @@ yarn-error.log*
 Thumbs.db
 desktop.ini
 .DS_Store
+_docx_qa/
 
 # ---------- 本地配置与密钥 ----------
 .env
