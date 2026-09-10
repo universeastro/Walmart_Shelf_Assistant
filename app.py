@@ -407,7 +407,14 @@ class ShelfAssistant(tk.Tk):
             row_mode,
         ]
         try:
-            completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
             raw = completed.stdout.strip().splitlines()
             payload = json.loads(raw[-1]) if raw else {"success": False, "message": completed.stderr.strip()}
             self.after(0, self._finish, payload, completed.returncode)

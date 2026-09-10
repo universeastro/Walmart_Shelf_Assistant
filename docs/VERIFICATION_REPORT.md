@@ -876,3 +876,49 @@ FullyQualifiedErrorId : excel_mapper.ps1 was not bundled into _internal\
 powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
 ```
 退出码 0 打包成功 / 非 0 失败（含 mapper 未打入包的断言）。
+
+## 15. 消除 PowerShell 黑框（2026-09-10，`3ffc56d1`）
+
+用户报告：每次处理都弹出 PowerShell 黑框，作为面向用户的 app 不可接受。
+诊断与修法见 `CODE_REVIEW.md` 第 12 项，此处只记复验。
+
+### 15.1 复验方式：走真实代码路径，不看 diff
+
+把 `app.MAPPER` 指向一个会自报控制台可见性的探针脚本
+（`GetConsoleWindow()` + `IsWindowVisible()`），让 `_run_worker` 用**它真实的**
+`subprocess.run` 去调用。父进程同样以 `--windowed` 打包——**这一步是关键**，
+只有父进程自身无控制台，才会复现「Windows 给子进程新分配控制台」的条件；
+若从带控制台的 `py` 直接跑，得到的结论是假的。
+
+同一进程内跑两组对照，两组都指向同一个探针：
+
+| 分支 | 探针经日志面板自报 |
+|---|---|
+| 修复前（wrapper 把 `creationflags` 摘掉） | `CONSOLEVISIBLE=True HWND=22550994` |
+| 当前代码 | `CONSOLEVISIBLE=False HWND=0` |
+
+两组完整走过 `_run_worker` → `subprocess.run` → `_finish` → 日志面板。
+探针消息带时间戳出现在日志里，**这同时证明加了标志后 stdout→JSON 解析照常工作**
+——这一点很要紧，因为 `app.py` 正是靠 stdout 拿映射脚本的 JSON 结果。
+
+### 15.2 回归
+
+| 项目 | 结果 |
+|---|---|
+| `test_ui_layout` | 5/5 |
+| `test_path_settings` | 6/6 |
+| `verify_path_settings` | 7/7 |
+| `verify_ui_integration`（真起 Excel） | 4/4 |
+| `smoke_completion_dialog` | PASS |
+| `verify_mapping` 契约 | match=12 mismatch=0 |
+| `compare_ooxml` | dataValidation 30/30；条件格式 48→43 为已知合并；公式 0/0 |
+
+**格式与契约结果与改动前完全一致**——本次只动了子进程的启动标志。
+
+### 15.3 未覆盖
+
+- **桌面上的已安装副本需要重跑 `build.ps1` + `install.ps1` 才会更新**，
+  源码改动不会自动生效。已代为执行，见提交信息。
+- 黑框消失这件事**最终仍需人眼确认**：本轮的自动化断言证明的是
+  「子进程的控制台窗口不可见」，无法替用户确认屏幕上确实没有闪过任何窗口。
+- 未在第二台电脑验证。

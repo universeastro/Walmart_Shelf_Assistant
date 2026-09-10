@@ -33,6 +33,10 @@ verify_mapping.ps1 -SourcePath tests/fixtures/A_sample.xls -TargetPath 文件/B�
 | 6. COM 泄漏 | ✅ 已修 | 新增 `Set-CellValue`，`Get-CellValue` / `Set-CellValue` 均释放中间 RCW |
 | 7. 只读打开 | ✅ 已修（**方案后被更换**） | `e7b1fcc` 改为「复制到输出目录的 GUID 临时文件 → 可写打开 → `SaveAs` → `finally` 删除」。见下方说明 |
 | 8. `output` 字段与实际落盘路径不符 | ✅ 已修（`a854441`） | 无扩展名时按模板扩展名补齐；`SaveAs` 后从 `$targetWb.FullName` 回读真实路径。已实测确认输出无扩展名时 `output` 报告 `.xlsx` 且文件确实生成在该处 |
+| 9. `rowsHiddenSkipped` 多计 | ⬜ 未处理 | 只影响日志数字，输出正确 |
+| 10. 空值单元格也设对齐 | ⬜ 未处理 | 看不出差别，不建议现在动 |
+| 11. 关窗口时不收尾 | ⬜ 未处理 | 仅影响关闭路径 |
+| 12. 弹出 PowerShell 黑框 | ✅ 已修（`3ffc56d1`，**已用真实代码路径复验**） | `_run_worker` 的 `subprocess.run` 加 `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)`，仅此一处。复验见下 |
 
 ### 复验补充说明
 
@@ -529,6 +533,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 改后重装并启动，点一次「开始填充」：**处理期间不应出现任何黑框**，
 摘要与输出文件应与改动前一致。这一条只能用眼睛确认，没有自动化断言能替代。
 
+### ✅ 修复复验（2026-09-10，`3ffc56d1`）
+
+Codex 采用了修法，并写成更保守的 `getattr(subprocess, "CREATE_NO_WINDOW", 0)`。
+
+**没有只看 diff 就下结论**——把 `app.MAPPER` 指向一个会自报控制台可见性的探针
+脚本，让 `_run_worker` 用它**真实的** `subprocess.run` 去调，父进程同样以
+`--windowed` 打包（与真实 app 一致，自身无控制台）。同一进程内跑两组对照：
+
+| 分支 | 探针经日志面板自报 |
+|---|---|
+| 修复前（用 wrapper 把 `creationflags` 摘掉） | `CONSOLEVISIBLE=True HWND=22550994` |
+| 当前代码 | `CONSOLEVISIBLE=False HWND=0` |
+
+两组都完整走过 `_run_worker` → `subprocess.run` → `_finish` → 日志面板。
+探针消息带时间戳出现在日志里，**同时证明加了标志后 stdout→JSON 解析照常工作**。
+
+回归：`test_ui_layout` 5/5、`test_path_settings` 6/6、`verify_path_settings` 7/7、
+`verify_ui_integration` 4/4、`smoke_completion_dialog` PASS、
+`verify_mapping` 12/12、`compare_ooxml` 与改动前完全一致。
+
 ---
 
 ## 建议处理顺序
@@ -545,4 +569,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 | 低 | 9. `rowsHiddenSkipped` 计数 | 只影响日志数字，输出正确 |
 | 低 | 10. 空值单元格也设对齐 | 看不出差别，不建议现在动 |
 | 低 | 11. 关窗口时不收尾 | 仅影响关闭路径；但兜底代码自己是假的，值得顺手加固 |
-| 中 | 12. 弹出 PowerShell 黑框 | 一行修复、用户每次都看得见，投入产出比最高 |
+| ~~中~~ | ~~12. 弹出 PowerShell 黑框~~ | ✅ **已修复并复验**（`3ffc56d1`） |
