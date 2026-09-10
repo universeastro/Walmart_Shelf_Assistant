@@ -32,7 +32,7 @@ verify_mapping.ps1 -SourcePath tests/fixtures/A_sample.xls -TargetPath 文件/B�
 | 5. 逐格 COM 写入 | ⬜ 未处理 | 真实数据前应做批量写入 |
 | 6. COM 泄漏 | ✅ 已修 | 新增 `Set-CellValue`，`Get-CellValue` / `Set-CellValue` 均释放中间 RCW |
 | 7. 只读打开 | ✅ 已修（**方案后被更换**） | `e7b1fcc` 改为「复制到输出目录的 GUID 临时文件 → 可写打开 → `SaveAs` → `finally` 删除」。见下方说明 |
-| 8. `output` 字段与实际落盘路径不符 | ⬜ 未处理 | `SaveAs` 会自行补扩展名，见第 8 节 |
+| 8. `output` 字段与实际落盘路径不符 | ✅ 已修（`a854441`） | 无扩展名时按模板扩展名补齐；`SaveAs` 后从 `$targetWb.FullName` 回读真实路径。已实测确认输出无扩展名时 `output` 报告 `.xlsx` 且文件确实生成在该处 |
 
 ### 复验补充说明
 
