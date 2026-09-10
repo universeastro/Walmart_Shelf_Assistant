@@ -62,6 +62,10 @@ _docx_qa/
 /out_*.xls
 /输出*.xlsx
 
+# 映射器写入时用的 GUID 临时副本（放在输出目录，finally 中删除）。
+# 正常不会留下；进程被强杀时会残留，不该被提交。
+.walmart_shelf_assistant_*
+
 # Claude Code 定时轮询任务的持久化状态。是本机工作流，与项目本身无关。
 # 不入库还有个实际原因：它出现在 git status 里会触发轮询自己。
 .claude/scheduled_tasks.json

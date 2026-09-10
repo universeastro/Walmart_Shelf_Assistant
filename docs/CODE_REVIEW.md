@@ -31,7 +31,8 @@ verify_mapping.ps1 -SourcePath _docx_qa/A_sample.xls -TargetPath 文件/B模板.
 | 4. 源表表头行数 | ⬜ 未处理 | 仍需先确认业务实际 |
 | 5. 逐格 COM 写入 | ⬜ 未处理 | 真实数据前应做批量写入 |
 | 6. COM 泄漏 | ✅ 已修 | 新增 `Set-CellValue`，`Get-CellValue` / `Set-CellValue` 均释放中间 RCW |
-| 7. 只读打开 | ✅ 已修 | 改为 `Open(..., $true)`；**已实测确认只读下 `SaveCopyAs` 正常**，输出文件正常生成 |
+| 7. 只读打开 | ✅ 已修（**方案后被更换**） | `e7b1fcc` 改为「复制到输出目录的 GUID 临时文件 → 可写打开 → `SaveAs` → `finally` 删除」。见下方说明 |
+| 8. `output` 字段与实际落盘路径不符 | ⬜ 未处理 | `SaveAs` 会自行补扩展名，见第 8 节 |
 
 ### 复验补充说明
 
@@ -53,6 +54,48 @@ verify_mapping.ps1 -SourcePath _docx_qa/A_sample.xls -TargetPath 文件/B模板.
 而我未执行 `verify-and-archive` 第 0 步的 `git status` 检查。
 
 **教训**：`git add -A` 在有并发写入者的仓库里是危险操作，应改为显式指定文件。
+
+### 第 7 项的方案在 `e7b1fcc` 中被更换（不是回归）
+
+原修复是「只读打开模板 `Open(..., $true)`」，我实测确认只读下 `SaveCopyAs` 正常。
+`e7b1fcc` 换成了另一条路：**把模板复制到输出目录下的 GUID 临时文件，以可写方式打开那个副本，
+`SaveAs` 到目标路径，`finally` 里删掉临时文件。**
+
+新方案更彻底，理由：只读方案虽然避免了模板被改写，但**锁文件的问题只是转移**——
+Excel 仍会在模板所在目录留下 `~$B模板.xlsx`。新方案下临时文件在输出目录，
+模板目录**自始至终不会出现锁文件**。
+
+实测确认（模板 md5 前后同为 `4ec60063`）：
+
+| 检查 | 结果 |
+|---|---|
+| 原模板是否被修改 | 未修改（md5 逐字节一致） |
+| 输出目录残留 | 跑入空目录后仅有 `out.xlsx`，无临时文件、无锁文件 |
+| 失败后是否清理 | 构造 `SaveAs` 之后的失败路径，仍无残留 |
+
+> ⚠️ **切换 `SaveCopyAs → SaveAs` 时我怀疑会丢格式，实测证伪了。**
+> 理由是 `SaveAs` 会按扩展名推断文件格式（`.csv` 会退化成 CSV，丢掉全部格式和多表），
+> 而 `SaveCopyAs` 不会。实测把输出命名为 `out.csv`，落盘文件头是 `PK..`（ZIP）、
+> 268KB 完整工作簿——**格式没有被转换**。该风险未成立，记录在此以备后续换用
+> 带 `FileFormat` 参数的重载时对照。
+
+---
+
+## 8. `output` 字段可能与实际落盘路径不符（低）
+
+**位置**：`excel_mapper.ps1` 第 215 行 `output = $OutputPath`、第 320 行 `SaveAs($resolvedOutput)`
+
+`SaveAs` 在路径缺少 Excel 可识别的扩展名时会**自行补上扩展名**。实测把输出指定为
+`_docx_qa/_straycheck`（一个已存在的目录名），Excel 实际写出的是
+`_docx_qa/_straycheck.xlsx`，而返回的 JSON 里 `output` 报的仍是
+`_docx_qa/_straycheck`——**一个并不存在文件的路径**。GUI 会显示「处理完成」，
+用户按提示去找文件却找不到。
+
+**当前触发面很窄**：GUI 的保存对话框设了 `defaultextension=".xlsx"`，
+正常走对话框不会踩到；只有用户选「所有文件」并手输无扩展名的名字时才会。
+
+**建议**：`SaveAs` 后从 `$targetWb.FullName` 回读真实路径再填进 `result.output`，
+而不是回填调用方传入的 `$OutputPath`。
 
 ---
 
