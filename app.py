@@ -23,6 +23,7 @@ class ShelfAssistant(tk.Tk):
         self.target_var = tk.StringVar()
         self.output_var = tk.StringVar()
         self.status_var = tk.StringVar(value="请选择文件 A 和文件 B")
+        self.running = False
         self._build_ui()
 
     def _build_ui(self):
@@ -62,7 +63,8 @@ class ShelfAssistant(tk.Tk):
 
         bottom = ttk.Frame(outer)
         bottom.pack(fill="x", pady=(20, 0))
-        ttk.Button(bottom, text="开始填充", style="Run.TButton", command=self.run_mapping).pack(side="left")
+        self.run_button = ttk.Button(bottom, text="开始填充", style="Run.TButton", command=self.run_mapping)
+        self.run_button.pack(side="left")
         ttk.Label(bottom, textvariable=self.status_var, style="Hint.TLabel").pack(side="left", padx=16)
 
         log_frame = ttk.LabelFrame(outer, text="处理记录")
@@ -115,19 +117,23 @@ class ShelfAssistant(tk.Tk):
         self.log.configure(state="disabled")
 
     def run_mapping(self):
+        if self.running:
+            return
         source = Path(self.source_var.get().strip())
         target = Path(self.target_var.get().strip())
         output = Path(self.output_var.get().strip())
         if not source.is_file() or not target.is_file():
             messagebox.showwarning("缺少文件", "请选择有效的文件 A 和文件 B。")
             return
-        if not output:
+        if not self.output_var.get().strip():
             messagebox.showwarning("缺少输出路径", "请选择输出文件路径。")
             return
-        if output.resolve() == target.resolve():
-            messagebox.showwarning("输出路径无效", "输出文件不能覆盖文件 B。")
+        if output.resolve() in (target.resolve(), source.resolve()):
+            messagebox.showwarning("输出路径无效", "输出文件不能覆盖文件 A 或文件 B。")
             return
         self.status_var.set("正在处理...")
+        self.running = True
+        self.run_button.configure(state="disabled")
         self._write_log(f"开始处理：{source.name} -> {target.name}")
         threading.Thread(target=self._run_worker, args=(source, target, output), daemon=True).start()
 
@@ -155,6 +161,8 @@ class ShelfAssistant(tk.Tk):
             self.after(0, self._finish, {"success": False, "message": str(exc)}, 1)
 
     def _finish(self, payload, returncode):
+        self.running = False
+        self.run_button.configure(state="normal")
         if payload.get("success") and returncode == 0:
             self.status_var.set("处理完成")
             self._write_log(payload.get("message", "映射完成。"))

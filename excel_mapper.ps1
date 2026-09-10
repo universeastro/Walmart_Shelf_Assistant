@@ -8,6 +8,8 @@
 )
 
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = [Console]::OutputEncoding
 
 function Normalize-Text([object]$Value) {
     if ($null -eq $Value) { return '' }
@@ -207,6 +209,7 @@ $targetWb = $null
 $sourceWs = $null
 $targetWs = $null
 $sourceUsed = $null
+$workingTargetPath = $null
 $result = [ordered]@{
     success = $false
     output = $OutputPath
@@ -230,9 +233,10 @@ try {
     $excel.Visible = $false
     $excel.DisplayAlerts = $false
     $sourceWb = $excel.Workbooks.Open((Resolve-Path $SourcePath).Path, 0, $true)
-    # Work against an in-memory copy while leaving the source template
-    # read-only and avoiding a lingering ~$ lock file beside it.
-    $targetWb = $excel.Workbooks.Open((Resolve-Path $TargetPath).Path, 0, $true)
+    # Open a private writable copy, preserving the original template.
+    $workingTargetPath = Join-Path $outputDirectory ('.walmart_shelf_assistant_' + [guid]::NewGuid().ToString('N') + [System.IO.Path]::GetExtension($TargetPath))
+    Copy-Item -LiteralPath (Resolve-Path $TargetPath).Path -Destination $workingTargetPath -Force
+    $targetWb = $excel.Workbooks.Open($workingTargetPath, 0, $false)
     $sourceWs = $sourceWb.Worksheets.Item(1)
     $targetWs = Find-TargetSheet $targetWb
     $result.targetSheet = $targetWs.Name
@@ -313,19 +317,28 @@ try {
         $result.rowsWritten++
     }
 
-    $targetWb.SaveCopyAs($resolvedOutput)
+    $targetWb.SaveAs($resolvedOutput)
     $result.success = $true
     $result.message = if ($dataRows.Count -eq 0) { '未发现源数据行；已生成未填充的输出副本。' } else { '映射完成。' }
 }
 catch {
     $result.message = $_.Exception.Message
+    $result.errorLine = $_.InvocationInfo.ScriptLineNumber
+    $result.errorType = $_.Exception.GetType().FullName
+    if ($result.message -match '80010108|RPC_E_DISCONNECTED') {
+        $result.message = 'Excel 连接已断开。请重新运行任务；如果再次失败，请提供本次使用的 A/B 文件路径。原始错误：' + $result.message
+    }
 }
 finally {
-    if ($sourceWb) { $sourceWb.Close($false) }
-    if ($targetWb) { $targetWb.Close($false) }
-    if ($excel) { $excel.Quit() }
+    # A disconnected Excel instance must not suppress the original result.
+    if ($sourceWb) { try { $sourceWb.Close($false) } catch {} }
+    if ($targetWb) { try { $targetWb.Close($false) } catch {} }
+    if ($excel) { try { $excel.Quit() } catch {} }
     foreach ($object in @($sourceUsed, $sourceWs, $targetWs, $sourceWb, $targetWb, $excel)) {
         if ($object) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($object) } catch {} }
+    }
+    if ($workingTargetPath -and (Test-Path -LiteralPath $workingTargetPath)) {
+        Remove-Item -LiteralPath $workingTargetPath -Force -ErrorAction SilentlyContinue
     }
     [GC]::Collect()
     [GC]::WaitForPendingFinalizers()
