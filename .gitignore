@@ -1,0 +1,59 @@
+# ============================================================
+# 沃尔玛上架助手 —— 忽略规则
+# ============================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 测试与检查缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- PyInstaller 打包产物 ----------
+/build/
+/dist/
+*.manifest
+
+# ---------- Node（若 GUI 走 Electron 分支） ----------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ---------- 真实业务数据（不入库） ----------
+# 体积大、含真实商品信息、有版权归属，且每次运行都不同。
+# 放到这些目录下的文件不会被提交。
+/data/
+/samples_private/
+
+# 运行中间产物与审计记录
+/jobs/
+
+# ---------- Office 临时锁文件 ----------
+# Excel/Word 打开文件时生成的 ~$xxx.xlsx，退出时未清理会残留
+~$*
+
+# ---------- 系统文件 ----------
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---------- 本地配置与密钥 ----------
+.env
+.env.local
+*.local.json
+
+# 注意：测试夹具（tests/fixtures 下的 .xlsx / .xls）必须入库。
+# 它们是接口契约的执行者，不入库就没法判断代码对错。
+# 因此这里不对 *.xlsx / *.xls 做全局忽略，只按目录忽略真实业务数据。
