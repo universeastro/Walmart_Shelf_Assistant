@@ -83,7 +83,11 @@ Excel 会合并条件相同的相邻列规则（48 条 → 43 条），覆盖范
 - ~~AutoFilter 筛选是否走同一条隐藏路径未测~~ → **已补齐**：实测确认
   AutoFilter 筛掉的行同样报告 `Hidden = $true`，与手工隐藏殊途同归。
   见 `tests/verify_autofilter.ps1` 与验证报告 10.9。
+- ~~界面从没真跑过一次映射~~ → **已补齐**：`tests/verify_ui_integration.py`
+  真起 Excel 走完整流程，12.5 秒跑通，并用「把 MAPPER 指向不存在的脚本」
+  证伪过（确实会失败，不是空转）。见验证报告第 13 节。
 - 仍未覆盖：源表多行表头、源行数超过模板容量（实测上限 372 行）。
+- 仍未覆盖：高 DPI 缩放（125%/150%）下的界面布局。
 - 全部验证跑在合成样本上，未经真实业务文件验证。
 
 ## 两个必须知道的实测结论
@@ -132,6 +136,20 @@ conditionalFormatting 的 sqref 覆盖和公式。改动涉及**单元格格式*
 原因未定位（最小复现脚本重现不出来），但现象稳定。
 `excel_mapper.ps1` 第 329 行把 `$null` 转成 `''` 正是因此**必须保留**。
 
+## 写 Tk 多线程测试必须用 mainloop()，不能用 update() 忙等
+
+**只有当主线程阻塞在 `mainloop()` 里**（`_tkinter` 的 `dispatching` 已置位）、
+跨线程的 `self.after(0, cb)` 才会被排队投递。主线程若只是循环调
+`window.update()` 泵事件，工作线程里的 `self.after(...)` 会直接抛
+`RuntimeError: main thread is not in main loop`，**回调永远送不到**。
+
+实测代价：按 `update()` 忙等写的端到端测试，**超时 180 秒**，看起来像
+「映射器挂死」；换成真实 `mainloop()` 后 12.5 秒跑完。
+`app.py` 本身没问题——**是测试脚手架的问题**。
+
+正确写法见 `tests/verify_ui_integration.py` 的 `_mainloop_until()`：
+`after(0, poll)` 轮询 + 到点或到超时 `quit()`，在 `mainloop()` 里等。
+
 ## 测试工具
 
 - `tests/compare_ooxml.py` —— 比较模板与输出的 OOXML 部件、数据验证、
@@ -150,6 +168,11 @@ conditionalFormatting 的 sqref 覆盖和公式。改动涉及**单元格格式*
   且表头区与写入区之外与模板**逐格一致**。改 `Set-CellValue` 后必跑。
 - `tests/smoke_completion_dialog.py` —— `CompletionDialog` 冒烟测试，
   用 `py` 跑。需可见桌面会话。
+- `tests/verify_ui_integration.py` —— **GUI 与映射器的真实集成验证**（Claude 侧）。
+  `tests/test_ui_layout.py` 把 `threading.Thread` patch 成 Mock，于是拼命令行、
+  起子进程、解析 JSON、回填摘要那段**一行都没跑过**；这里真起 Excel 跑一遍，
+  断言输出文件生成、摘要数字与映射器返回一致、控件恢复。另含「校验失败不留
+  转圈」「重复点击被忽略」「状态栏随路径刷新」三例。约 16 秒，需 Excel。
 - `tests/test_path_settings.py` —— 路径持久化的单元测试（Codex 侧）。
 - `tests/verify_path_settings.py` —— 同一功能的**独立**边界验证（Claude 侧，
   与上一个角度不同）。两者都用

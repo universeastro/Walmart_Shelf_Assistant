@@ -716,3 +716,92 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_multirow.ps1 -R
 ```
 
 退出码 `0` 全部断言成立 / `1` 有失败（逐条打印期望值与实际值）。
+
+## 13. 界面重构：浅色工作台 + 进度/锁定/提示（2026-09-10）
+
+改动 `app.py`（+177/−39），`excel_mapper.ps1` **未动**（哈希 `630dbd14` 不变）。
+本轮改动集中在界面层：可滚动日志、不定进度条、处理期间锁定控件、路径悬停提示、
+浏览窗口记忆上次目录、日志加时间戳、摘要行、「打开输出位置」按钮。
+
+### 13.1 功能验证
+
+| 项目 | 结果 |
+|---|---|
+| `tests/test_ui_layout.py`（Codex 侧，5 例） | **5/5 通过** |
+| `tests/verify_path_settings.py`（Claude 侧，7 例） | **7/7 通过** |
+| `tests/test_path_settings.py`（Codex 侧，6 例） | **6/6 通过** |
+| `tests/smoke_completion_dialog.py`（6 节） | **PASS** |
+| `verify_mapping.ps1` 契约校验 | **match=12 mismatch=0**，退出码 0 |
+
+### 13.2 补的缺口：GUI 从没真跑过一次映射
+
+`tests/test_ui_layout.py` 里每一例都用了
+`with patch("app.threading.Thread")`，把工作线程换成 Mock。于是
+`run_mapping()` 里真正拼命令行、起 `powershell.exe`、解析 JSON、回填摘要那段
+**一行都没被执行过**。5 个用例全绿，与「这程序能不能填出一份表」无关。
+
+新增 `tests/verify_ui_integration.py`（Claude 侧，4 例）补这条缝：
+
+1. **真实端到端**——用 `tests/fixtures/A_sample.xls` + `文件/B模板.xlsx` 跑完整流程，
+   断言输出文件真的生成且非空、`last_output` 指向它、摘要数字与映射器返回一致、
+   控件与按钮可用性正确恢复、状态栏为「处理完成」。
+2. **校验失败不留转圈**——钉住 `progress.start()` 排在所有 early return **之后**
+   这个顺序；将来有人把它上移会被抓住。
+3. **运行中重复点击被忽略**——否则两个 Excel 进程抢同一个输出文件。
+4. **状态栏随路径编辑刷新**。
+
+实测：端到端 **12.5 秒**完成，输出文件生成，摘要「读取 1 行 写入 1 行 跳过隐藏 0 行」。
+
+### 13.3 证伪（证明测试不是空转）
+
+把 `app.MAPPER` 指向不存在的脚本再跑端到端，**必须失败**：
+
+```
+AssertionError: False is not true : 未生成输出文件: ...\tmp1exnbocq\out.xlsx
+TEETH CONFIRMED: the end-to-end test fails when the mapper cannot run.
+```
+
+即：断言确实挂在「映射真的跑过」这件事上。
+
+### 13.4 一次假失败——记下来，因为它很容易再踩
+
+`verify_ui_integration.py` 第一版用 `while ...: window.update()` 泵事件等待，
+结果端到端**超时 180 秒**。差点报成「子进程挂死」。
+
+拆开查证后：
+- 直接计时跑同一条命令行 → **12 秒**，退出码 0。映射器不慢。
+- `subprocess.run` 在 GUI 进程里跑 → 8.5 秒正常。调用本身没问题。
+- `self.after(0, cb)` 从工作线程调用 → `RuntimeError('main thread is not in main loop')`。
+
+根因在 `_tkinter`：**只有当主线程阻塞在 `mainloop()` 里**（`dispatching` 已置位）
+跨线程 Tcl 调用才会被排队投递；主线程若只是循环调 `update()`，跨线程调用直接抛错。
+换成真实 `mainloop()` 后一切正常（12.5 秒跑完，见 13.1）。
+
+**结论：这是测试脚手架的问题，不是产品缺陷。** 写 Tk 多线程测试必须用
+`mainloop()` + `after` 轮询 + `quit()`，不能用 `update()` 忙等。
+
+### 13.5 格式抽查
+
+`compare_ooxml.py` 比对 `文件/B模板.xlsx` 与新生成的输出：
+
+- dataValidation **30/30 一致**
+- conditionalFormatting **48 → 43**，丢失 `AA7:AA10000`/`AB7:AB10000`/… 共 10 条，
+  新增 `AA7:AB10000`/`AF7:AG10000`/… 共 5 条——**恰好是丢失区间两两的并集**，
+  覆盖范围等价。即 2.2 节记录的已知合并现象，非缺陷。
+- 公式 0 / 0（模板本身无公式）
+
+### 13.6 未覆盖
+
+- 仍全部跑在合成夹具上，**未经真实业务 A/B 文件验证**
+- 「填充」对齐、`clam` 主题在真实宽列 / 长文本下的观感，只能人眼看
+- 高 DPI 缩放（125% / 150%）下的布局——`test_controls_fit_at_supported_sizes`
+  只在 100% 缩放的 720×620 / 880×680 / 1100×800 三种尺寸下断言
+- 关闭窗口时正在处理（见 `CODE_REVIEW.md` 第 11 项）
+
+### 13.7 复跑方式
+
+```bash
+py -m unittest tests.test_ui_layout -v
+py -m unittest tests.verify_ui_integration -v   # 需 Excel，约 16 秒
+py tests/smoke_completion_dialog.py
+```

@@ -405,6 +405,58 @@ Set-CellValue $targetWs $targetRow $mapping.Target.Column $value   # 内部会�
 
 ---
 
+## 11. 关闭窗口时正在处理：进度条动画与工作线程都不收尾（低）
+
+`ShelfAssistant.destroy()` 只做两件事：`_hide_path_tip()` 和 `_save_paths()`，
+然后 `super().destroy()`。**它不停进度条，也不理会工作线程。**
+
+于是「处理中直接关窗口」有两条后果：
+
+**一、进度条动画的 `after` 脚本留在事件队列里**，窗口销毁后照样触发，
+控制台刷出：
+
+```
+cannot invoke "winfo" command: application has been destroyed
+    while executing "winfo exists $pb"
+    (procedure "ttk::progressbar::Autoincrement" line 4)
+```
+
+**二、工作线程跑完子进程后调 `self.after(0, self._finish, ...)`**，
+此时 widget 已销毁 → 抛 `TclError`。该异常落进 `_run_worker` 的
+`except Exception` 分支，而那个分支**又调了一次 `self.after`**：
+
+```python
+except Exception as exc:
+    self.after(0, self._finish, {"success": False, "message": str(exc)}, 1)
+```
+
+第二次调用同样抛错，这次**无人接住**，工作线程带 traceback 死掉。
+
+### 实测
+
+已确定性复现 `after` 抛出的一类情形：主线程不在 `mainloop()` 里时，
+跨线程调 `self.after` 抛 `RuntimeError: main thread is not in main loop`。
+正常使用（用户跑 `mainloop()`）不会触发——**这条路径只在关窗口时可达**。
+
+### 影响
+
+**低。** 程序反正要关了，用户看不到。危害是：`except` 分支本意是
+「出错也要把界面恢复可操作」，但它自己会抛错，等于**这个兜底是假的**——
+一旦 `after` 因任何原因失败，`self.running` 永远是 `True`，控件永久锁死、
+进度条永远转、没有弹窗也没有报错，只能杀进程。
+
+### 建议
+
+两处小改，都不影响正常流程：
+
+1. `destroy()` 里加 `self.progress.stop()`。
+2. `except` 分支用 `try: self.after(...) except tk.TclError: pass` 包一层，
+   或者先判 `self.winfo_exists()`。关键是**兜底代码自己不能抛**。
+
+**未改动**——留给 Codex 判断是否值得为「关窗口」这一条路径加防御。
+
+---
+
 ## 建议处理顺序
 
 | 优先级 | 项 | 理由 |
@@ -418,3 +470,4 @@ Set-CellValue $targetWs $targetRow $mapping.Target.Column $value   # 内部会�
 | 低 | 7. 只读打开 | 需实测验证 |
 | 低 | 9. `rowsHiddenSkipped` 计数 | 只影响日志数字，输出正确 |
 | 低 | 10. 空值单元格也设对齐 | 看不出差别，不建议现在动 |
+| 低 | 11. 关窗口时不收尾 | 仅影响关闭路径；但兜底代码自己是假的，值得顺手加固 |
