@@ -40,7 +40,21 @@ function Get-CellText($Worksheet, [int]$Row, [int]$Column) {
 }
 
 function Get-CellValue($Worksheet, [int]$Row, [int]$Column) {
-    return $Worksheet.Cells.Item($Row, $Column).Value2
+    $cell = $Worksheet.Cells.Item($Row, $Column)
+    try {
+        return $cell.Value2
+    } finally {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($cell)
+    }
+}
+
+function Set-CellValue($Worksheet, [int]$Row, [int]$Column, [object]$Value) {
+    $cell = $Worksheet.Cells.Item($Row, $Column)
+    try {
+        $cell.Value2 = $Value
+    } finally {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($cell)
+    }
 }
 
 function Find-SourceColumn($Worksheet, [string[]]$HeaderNames, [string]$FallbackLetter) {
@@ -68,6 +82,9 @@ function Find-TargetSheet($Workbook) {
     $best = $null
     $bestScore = -1
     foreach ($worksheet in $Workbook.Worksheets) {
+        # Hidden metadata sheets can contain the same labels as the visible
+        # entry sheet but are never valid destinations for user data.
+        if ($worksheet.Visible -ne -1) { continue }
         $used = $worksheet.UsedRange
         $score = 0
         $scanRows = [math]::Min(12, $used.Row + $used.Rows.Count - 1)
@@ -124,9 +141,18 @@ function Find-TargetColumns($Worksheet) {
     if ($headerRows.Count -eq 0) { $headerRows.Add($leafHeaderRow) }
     $headerLastRow = $leafHeaderRow
 
-    for ($row = $headerLastRow + 1; $row -le [math]::Min($maxRow, $headerLastRow + 2); $row++) {
-        $sample = Normalize-Text (Get-CellText $Worksheet $row ($used.Column + 3))
-        if ($sample -match 'alphanumeric|decimal|closed list|url|date|number|boolean') {
+    for ($row = $headerLastRow + 1; $row -le [math]::Min($maxRow, $headerLastRow + 3); $row++) {
+        $keywordHits = 0
+        for ($column = $used.Column; $column -le $maxColumn; $column++) {
+            $sample = Normalize-Text (Get-CellText $Worksheet $row $column)
+            if ($sample -match 'alphanumeric,|decimal,|closed list -|dateonly,|number,|boolean,') {
+                $keywordHits++
+            }
+        }
+        # XML-name rows can contain isolated tokens such as "url" or
+        # "date". A description row repeats type markers across the whole
+        # schema, so require several independent hits.
+        if ($keywordHits -ge 5) {
             $descriptionRow = $row
             break
         }
@@ -154,10 +180,23 @@ function Find-TargetColumns($Worksheet) {
     return [pscustomobject]@{ Columns = $columns; HeaderRows = $headerRows; DataStart = $dataStart }
 }
 
-function Find-TargetColumn($TargetColumns, [string[]]$LeafNames) {
+function Find-TargetColumn($TargetColumns, [string[]]$LeafNames, [string[]]$PathHints = @()) {
     $wanted = @($LeafNames | ForEach-Object { Normalize-Text $_ } | Where-Object { $_ })
-    foreach ($entry in $TargetColumns.GetEnumerator()) {
-        if ($wanted -contains $entry.Value.Leaf) { return $entry.Value }
+    $candidates = @($TargetColumns.GetEnumerator() | Where-Object { $wanted -contains $_.Value.Leaf })
+    if ($candidates.Count -eq 1) { return $candidates[0].Value }
+    if ($candidates.Count -gt 1 -and $PathHints.Count -gt 0) {
+        $hints = @($PathHints | ForEach-Object { Normalize-Text $_ })
+        $pathMatches = @($candidates | Where-Object {
+            foreach ($hint in $hints) {
+                if ($_.Value.Path -like "*$hint*") { return $true }
+            }
+            return $false
+        })
+        if ($pathMatches.Count -eq 1) { return $pathMatches[0].Value }
+    }
+    if ($candidates.Count -gt 1) {
+        $locations = ($candidates | ForEach-Object { $_.Value.Letter + ':' + $_.Value.Path }) -join '; '
+        throw "目标字段名称存在多个候选列，无法安全匹配 [$($LeafNames -join ', ')]: $locations"
     }
     return $null
 }
@@ -191,7 +230,9 @@ try {
     $excel.Visible = $false
     $excel.DisplayAlerts = $false
     $sourceWb = $excel.Workbooks.Open((Resolve-Path $SourcePath).Path, 0, $true)
-    $targetWb = $excel.Workbooks.Open((Resolve-Path $TargetPath).Path, 0, $false)
+    # Work against an in-memory copy while leaving the source template
+    # read-only and avoiding a lingering ~$ lock file beside it.
+    $targetWb = $excel.Workbooks.Open((Resolve-Path $TargetPath).Path, 0, $true)
     $sourceWs = $sourceWb.Worksheets.Item(1)
     $targetWs = Find-TargetSheet $targetWb
     $result.targetSheet = $targetWs.Name
@@ -267,7 +308,7 @@ try {
         foreach ($mapping in $resolvedMappings) {
             $value = Get-CellValue $sourceWs $sourceRow $mapping.Source.Column
             if ($null -eq $value) { $value = '' }
-            $targetWs.Cells.Item($targetRow, $mapping.Target.Column).Value2 = $value
+            Set-CellValue $targetWs $targetRow $mapping.Target.Column $value
         }
         $result.rowsWritten++
     }
