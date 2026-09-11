@@ -436,3 +436,9 @@ T02 已按上文更正完毕，用户决策已录入。
 - 修订后的 `项目需求文档02.docx` 已重新抽取核对，明确为
   `A.A列 SKU -> B.A列 SKU`、`A.D列 自定义 -> B.B列 平台SKU`。
 - `docs/REVIEW_REQ02.md` 已标记为历史审查快照，最终契约与验证以本交接记录文末为准。
+
+## 2026-09-11 提交记录
+
+- 分支：`feature/req02-parallel`
+- 实现与验证提交：`ebe027f feat: add req02 parallel SKU mapping workflow`
+- 未推送远端、未合并 `main`；后续以该提交作为功能审查与合并基线。
