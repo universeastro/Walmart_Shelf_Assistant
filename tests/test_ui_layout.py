@@ -154,6 +154,22 @@ class UILayoutTests(unittest.TestCase):
             warning.assert_called_once()
             open_folder.assert_not_called()
 
+    def test_successful_replace_shows_actual_output_path_and_action(self):
+        output = Path(self.temp.name) / "result.xlsx"
+        output.touch()
+        self.window.output_var.set(str(output.with_suffix("")))
+
+        with patch("app.CompletionDialog"):
+            self.window._finish(
+                {"success": True, "output": str(output), "rowsRead": 1, "rowsWritten": 1},
+                0,
+                "Replace",
+            )
+            self.window.completion_dialog = None
+
+        self.assertEqual(self.window.output_var.get(), str(output.resolve()))
+        self.assertNotEqual(self.window.output_label_var.get(), "输出文件")
+
     def test_output_action_is_scoped_to_profile_page(self):
         output = Path(self.temp.name) / "main-result.xlsx"
         output.touch()

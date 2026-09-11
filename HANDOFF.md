@@ -497,3 +497,11 @@ T02 已按上文更正完毕，用户决策已录入。
 - 验证：UI/路径 36/36、GUI/Excel COM 6/6、主线 12/12、主线追加/替换、支线全部组合、对齐与模板保护、PowerShell 语法/BOM、`git diff --check` 全部通过。
 - Claude 独立只读审查批准，无阻断问题；独立复跑 UI 19/19、`py_compile`、diff check 和 BOM 均通过。
 - 已执行 `build.ps1` 与 `install.ps1`，安装版包含 `OutputMode` 并可正常启动。T15 已完成。
+
+## 2026-09-12 输出栏状态与实际路径回填（T16）
+
+- 用户反馈点击“替换文件”后，输出文件栏路径没有变化，容易误判为替换没有生效。
+- 该路径按设计仍指向同一个输出文件；“替换”以 B 模板为基底重新生成并覆盖输出，不能改写 B 原件。
+- `app.py` 现在在处理期间显示“输出文件（将替换）”或“输出文件（将继续写入）”，成功后显示对应的“已替换”或“已继续写入”。
+- 映射成功后，输出栏回填映射器返回的实际绝对路径，避免无扩展名输入或路径规范化造成显示歧义；两套方案路径仍相互隔离。
+- 验证：`py -m unittest tests.test_ui_layout tests.test_path_settings -v` 为 28/28；`py tests/verify_ui_integration.py` 为 6/6；`git diff --check` 通过。

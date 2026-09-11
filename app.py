@@ -140,6 +140,10 @@ class ShelfAssistant(tk.Tk):
             label: {key: tk.StringVar() for key in PATH_KEYS}
             for label in PROFILE_LABELS
         }
+        self._profile_output_labels = {
+            label: tk.StringVar(value="输出文件")
+            for label in PROFILE_LABELS
+        }
         self._active_profile_label = "主线 01"
         self._profile_change_guard = False
         self._activate_profile_vars(self._active_profile_label)
@@ -171,6 +175,7 @@ class ShelfAssistant(tk.Tk):
         self.source_var = self._path_vars["source"]
         self.target_var = self._path_vars["target"]
         self.output_var = self._path_vars["output"]
+        self.output_label_var = self._profile_output_labels[label]
 
     def _validated_path_value(self, key, value):
         if key in ("source", "target") and value:
@@ -322,7 +327,8 @@ class ShelfAssistant(tk.Tk):
             path_vars = self._profile_path_vars[label]
             self._file_row(panel, 0, "文件 A（源数据）", path_vars["source"], self._choose_source, "source", label, controls)
             self._file_row(panel, 1, "文件 B（目标文件）", path_vars["target"], self._choose_target, "target", label, controls)
-            self._file_row(panel, 2, "输出文件", path_vars["output"], self._choose_output, "output", label, controls)
+            self._file_row(panel, 2, self._profile_output_labels[label], path_vars["output"], self._choose_output,
+                           "output", label, controls)
             self._profile_pages[label] = page
             self._profile_file_controls[label] = controls
         self.all_file_controls = [
@@ -372,7 +378,8 @@ class ShelfAssistant(tk.Tk):
         self.log.pack(side="left", fill="both", expand=True)
 
     def _file_row(self, parent, row, label, variable, command, kind, profile_label, controls):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 18), pady=6)
+        label_options = {"textvariable": label} if isinstance(label, tk.Variable) else {"text": label}
+        ttk.Label(parent, **label_options).grid(row=row, column=0, sticky="w", padx=(0, 18), pady=6)
         entry = ttk.Entry(parent, textvariable=variable, width=12,
                           font=("Microsoft YaHei UI", 10), foreground="#252b32")
         entry.grid(row=row, column=1, sticky="ew", pady=6)
@@ -538,6 +545,16 @@ class ShelfAssistant(tk.Tk):
     def _choose_existing_output_mode(self, output):
         return OutputModeDialog.ask(self, output.name)
 
+    def _set_output_action(self, profile_label, output_mode, completed=False):
+        if output_mode == "AppendExisting":
+            action = "已继续写入" if completed else "将继续写入"
+        elif output_mode == "Replace":
+            action = "已替换" if completed else "将替换"
+        else:
+            action = ""
+        suffix = f"（{action}）" if action else ""
+        self._profile_output_labels[profile_label].set("输出文件" + suffix)
+
     def _effective_output_path(self, output, target):
         if output.suffix or not target.suffix:
             return output
@@ -602,6 +619,7 @@ class ShelfAssistant(tk.Tk):
             output_mode = self._choose_existing_output_mode(effective_output)
             if output_mode is None:
                 return
+        self._set_output_action(self._active_profile_label, output_mode)
         self.status_var.set("正在处理...")
         self.last_output = None
         self._profile_last_outputs[self._active_profile_label] = None
@@ -665,11 +683,11 @@ class ShelfAssistant(tk.Tk):
             )
             raw = completed.stdout.strip().splitlines()
             payload = json.loads(raw[-1]) if raw else {"success": False, "message": completed.stderr.strip()}
-            self.after(0, self._finish, payload, completed.returncode)
+            self.after(0, self._finish, payload, completed.returncode, output_mode)
         except Exception as exc:  # pragma: no cover - UI error path
-            self.after(0, self._finish, {"success": False, "message": str(exc)}, 1)
+            self.after(0, self._finish, {"success": False, "message": str(exc)}, 1, output_mode)
 
-    def _finish(self, payload, returncode):
+    def _finish(self, payload, returncode, output_mode=None):
         self.running = False
         self.progress.stop()
         self.progress.configure(value=0)
@@ -685,7 +703,9 @@ class ShelfAssistant(tk.Tk):
             if output_path:
                 self.last_output = Path(output_path).resolve()
                 self._profile_last_outputs[self._active_profile_label] = self.last_output
+                self.output_var.set(str(self.last_output))
                 self.open_output_button.configure(state="normal")
+            self._set_output_action(self._active_profile_label, output_mode or "Replace", completed=True)
             self.status_var.set("处理完成")
             self.status_label.configure(style="Success.TLabel")
             self._write_log(payload.get("message", "映射完成。"))
