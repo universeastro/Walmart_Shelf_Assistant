@@ -10,7 +10,9 @@
     [ValidateSet('Append', 'Replace')]
     [string]$WriteMode = 'Append',
     [ValidateSet('Visible', 'All')]
-    [string]$RowMode = 'Visible'
+    [string]$RowMode = 'Visible',
+    [ValidateSet('Replace', 'AppendExisting')]
+    [string]$OutputMode = 'Replace'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -315,6 +317,7 @@ $result = [ordered]@{
     rowMode = $RowMode
     profile = $Profile
     writeMode = $WriteMode
+    outputMode = $OutputMode
     mappings = @()
     skipped = @()
     message = ''
@@ -324,6 +327,9 @@ try {
     if ($Profile -ne 'Req02' -and $WriteMode -ne 'Append') {
         throw 'WriteMode Replace 仅适用于支线 Req02。'
     }
+    if ($OutputMode -eq 'AppendExisting' -and $WriteMode -ne 'Append') {
+        throw '继续写入现有输出不能与 WriteMode Replace 同时使用。'
+    }
     $resolvedOutput = [System.IO.Path]::GetFullPath($OutputPath)
     if (Test-Path -LiteralPath $resolvedOutput -PathType Container) { throw '输出路径是文件夹，请指定完整的 Excel 文件名。' }
     if (-not [System.IO.Path]::GetExtension($resolvedOutput)) { $resolvedOutput += [System.IO.Path]::GetExtension($TargetPath) }
@@ -332,6 +338,9 @@ try {
     if (-not (Test-Path $outputDirectory)) { New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null }
     if ([System.IO.Path]::GetFullPath($TargetPath) -eq $resolvedOutput) { throw '输出文件不能覆盖原始 B 模板，请选择新的输出文件名。' }
     if ([System.IO.Path]::GetFullPath($SourcePath) -eq $resolvedOutput) { throw '输出文件不能覆盖文件 A。' }
+    if ($OutputMode -eq 'AppendExisting' -and -not (Test-Path -LiteralPath $resolvedOutput -PathType Leaf)) {
+        throw '选择继续写入时，输出文件必须已经存在。'
+    }
     if (Test-Path -LiteralPath $resolvedOutput) {
         try {
             $probe = [IO.File]::Open($resolvedOutput, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
@@ -345,10 +354,12 @@ try {
     $excel.DisplayAlerts = $false
     $stage = '读取文件 A'
     $sourceWb = $excel.Workbooks.Open((Resolve-Path $SourcePath).Path, 0, $true)
-    # Open a private writable copy, preserving the original template.
-    $workingTargetPath = Join-Path $outputDirectory ('.walmart_shelf_assistant_' + [guid]::NewGuid().ToString('N') + [System.IO.Path]::GetExtension($TargetPath))
-    Copy-Item -LiteralPath (Resolve-Path $TargetPath).Path -Destination $workingTargetPath -Force
-    $stage = '读取模板副本'
+    # Work only on a private copy. Replace starts from B; AppendExisting starts
+    # from the selected output so its current rows and workbook features survive.
+    $baseTargetPath = if ($OutputMode -eq 'AppendExisting') { $resolvedOutput } else { (Resolve-Path $TargetPath).Path }
+    $workingTargetPath = Join-Path $outputDirectory ('.walmart_shelf_assistant_' + [guid]::NewGuid().ToString('N') + [System.IO.Path]::GetExtension($baseTargetPath))
+    Copy-Item -LiteralPath $baseTargetPath -Destination $workingTargetPath -Force
+    $stage = if ($OutputMode -eq 'AppendExisting') { '读取现有输出副本' } else { '读取模板副本' }
     $targetWb = $excel.Workbooks.Open($workingTargetPath, 0, $false)
     $stage = '匹配并写入数据'
     $sourceWs = $sourceWb.Worksheets.Item(1)

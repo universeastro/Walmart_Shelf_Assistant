@@ -16,6 +16,7 @@
 | T12 | Claude | 已完成 | 需求、边界、回归与文档审查；审查结论追加 `HANDOFF.md` | T11 |
 | T13 | Codex | 已完成 | 最终整合、验证与提交 | T12 通过 |
 | T14 | Codex | 已完成 | `excel_mapper.ps1`、`tests/verify_req02.ps1`、`PROJECT.md`、`README.md`、`HANDOFF.md` | 支线兼容源表头“自定义SKU” |
+| T15 | Codex | 已完成 | `app.py`、`excel_mapper.ps1`、`tests/test_ui_layout.py`、`tests/verify_ui_integration.py`、`tests/verify_req02.ps1`、`tests/verify_append.ps1`、`README.md`、`PROJECT.md`、`HANDOFF.md` | 已存在输出可选替换或继续写入 |
 
 ## 接口约定
 

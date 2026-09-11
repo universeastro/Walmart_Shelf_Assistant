@@ -43,6 +43,8 @@ SAMPLE = REPO / "tests" / "fixtures" / "A_sample.xls"
 TEMPLATE = REPO / "文件" / "01" / "B模板01.xlsx"
 REQ02_SAMPLE = REPO / "文件" / "02" / "A模板02.xls"
 REQ02_TEMPLATE = REPO / "文件" / "02" / "B模板.xls"
+REQ02_FIXTURE_SOURCE = REPO / "tests" / "fixtures" / "A_req02_sample.xlsx"
+REQ02_FIXTURE_TARGET = REPO / "tests" / "fixtures" / "B_req02_sample.xlsx"
 
 
 class UIIntegrationTests(unittest.TestCase):
@@ -163,6 +165,32 @@ class UIIntegrationTests(unittest.TestCase):
         self.assertIn("映射方案：支线 02", log_text)
         self.assertIn("本批次从第 700 行开始写入", log_text)
         self.assertIn("已有数据末行：696", log_text)
+
+    def test_existing_output_can_continue_through_gui(self):
+        output = Path(self.temporary.name) / "continued-output.xlsx"
+        self.window.profile_var.set("支线 02")
+        self.window.source_var.set(str(REQ02_FIXTURE_SOURCE))
+        self.window.target_var.set(str(REQ02_FIXTURE_TARGET))
+        self.window.output_var.set(str(output))
+
+        with patch("app.CompletionDialog"):
+            self.window.run_mapping()
+            first = self._mainloop_until(lambda: not self.window.running, 180)
+            self.assertFalse(first.get("timeout", False), "首次输出未在 180 秒内完成")
+
+        self.assertTrue(output.is_file(), "首次输出未生成")
+        with patch("app.OutputModeDialog.ask", return_value="AppendExisting") as choose, patch(
+            "app.CompletionDialog"
+        ):
+            self.window.run_mapping()
+            second = self._mainloop_until(lambda: not self.window.running, 180)
+            self.assertFalse(second.get("timeout", False), "继续写入未在 180 秒内完成")
+        choose.assert_called_once_with(self.window, output.name)
+
+        log_text = self.window.log.get("1.0", "end")
+        self.assertIn("输出处理：在现有输出中继续写入", log_text)
+        self.assertIn("本批次从第 17 行开始写入", log_text)
+        self.assertIn("已有数据末行：13", log_text)
 
     # 2 -------------------------------------------------------------------
     def test_validation_failure_leaves_no_spinner(self):

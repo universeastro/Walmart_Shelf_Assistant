@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app import ShelfAssistant
+from app import OutputModeDialog, ShelfAssistant
 
 
 class UILayoutTests(unittest.TestCase):
@@ -73,9 +73,67 @@ class UILayoutTests(unittest.TestCase):
         self.assertEqual(options["initialdir"], self.temp.name)
         self.assertEqual(options["initialfile"], "new.xlsx")
         self.assertIs(options["parent"], self.window)
-        with patch("app.filedialog.asksaveasfilename", return_value=""):
+        with patch("app.filedialog.asksaveasfilename", return_value="") as choose:
             self.window._choose_output()
         self.assertEqual(self.window.output_var.get(), str(output))
+        self.assertFalse(choose.call_args.kwargs["confirmoverwrite"])
+
+    def test_existing_output_choice_is_passed_to_worker(self):
+        for name, variable in (("a.xls", self.window.source_var), ("b.xlsx", self.window.target_var)):
+            path = Path(self.temp.name) / name
+            path.touch()
+            variable.set(str(path))
+        output = Path(self.temp.name) / "output.xlsx"
+        output.touch()
+        self.window.output_var.set(str(output))
+
+        with patch("app.OutputModeDialog.ask", return_value="AppendExisting"), patch(
+            "app.threading.Thread"
+        ) as worker, patch.object(self.window.progress, "start"):
+            self.window.run_mapping()
+        self.assertEqual(worker.call_args.kwargs["args"][-1], "AppendExisting")
+        with patch("app.messagebox.showerror"):
+            self.window._finish({"success": False, "message": "test cleanup"}, 1)
+
+    def test_cancel_existing_output_choice_does_not_start(self):
+        for name, variable in (("a.xls", self.window.source_var), ("b.xlsx", self.window.target_var),
+                               ("output.xlsx", self.window.output_var)):
+            path = Path(self.temp.name) / name
+            path.touch()
+            variable.set(str(path))
+        with patch("app.OutputModeDialog.ask", return_value=None), patch(
+            "app.threading.Thread"
+        ) as worker, patch.object(self.window.progress, "start") as spinner:
+            self.window.run_mapping()
+        worker.assert_not_called()
+        spinner.assert_not_called()
+        self.assertFalse(self.window.running)
+
+    def test_extensionless_output_checks_effective_existing_file(self):
+        for name, variable in (("a.xls", self.window.source_var), ("b.xlsx", self.window.target_var)):
+            path = Path(self.temp.name) / name
+            path.touch()
+            variable.set(str(path))
+        entered = Path(self.temp.name) / "output"
+        effective = entered.with_suffix(".xlsx")
+        effective.touch()
+        self.window.output_var.set(str(entered))
+        with patch("app.OutputModeDialog.ask", return_value=None) as choose, patch(
+            "app.threading.Thread"
+        ) as worker:
+            self.window.run_mapping()
+        choose.assert_called_once_with(self.window, effective.name)
+        worker.assert_not_called()
+
+    def test_output_mode_dialog_has_explicit_actions(self):
+        dialog = OutputModeDialog(self.window, "existing.xlsx")
+        self.assertIsNone(dialog.result)
+        labels = {child.cget("text") for frame in dialog.winfo_children() for child in frame.winfo_children()
+                  if child.winfo_class() == "TFrame" for child in child.winfo_children()
+                  if child.winfo_class() == "TButton"}
+        self.assertEqual(labels, {"替换文件", "继续写入", "取消"})
+        dialog._select("AppendExisting")
+        self.assertEqual(dialog.result, "AppendExisting")
 
     def test_output_action_uses_successful_result_not_edited_path(self):
         output = Path(self.temp.name) / "result.xlsx"
@@ -184,9 +242,12 @@ class UILayoutTests(unittest.TestCase):
     def test_worker_passes_selected_profile(self):
         completed = SimpleNamespace(stdout='{"success":true}', stderr="", returncode=0)
         with patch("app.subprocess.run", return_value=completed) as run, patch.object(self.window, "after"):
-            self.window._run_worker(Path("a.xls"), Path("b.xls"), Path("out.xlsx"), "Visible", "Req02")
+            self.window._run_worker(
+                Path("a.xls"), Path("b.xls"), Path("out.xlsx"), "Visible", "Req02", "AppendExisting"
+            )
         command = run.call_args.args[0]
         self.assertEqual(command[command.index("-Profile") + 1], "Req02")
+        self.assertEqual(command[command.index("-OutputMode") + 1], "AppendExisting")
 
 
 if __name__ == "__main__":

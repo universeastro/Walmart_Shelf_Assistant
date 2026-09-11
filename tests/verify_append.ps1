@@ -57,6 +57,41 @@ try {
     $excel.Quit()
     $excel = $null
 
+    $raw = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'excel_mapper.ps1') -SourcePath (Join-Path $PSScriptRoot 'fixtures\A_sample.xls') -TargetPath $populated -OutputPath $output -OutputMode AppendExisting
+    if ($LASTEXITCODE -ne 0) { throw ($raw | Out-String) }
+    $continued = $raw | ConvertFrom-Json
+    if ($continued.outputMode -ne 'AppendExisting' -or $continued.existingLastRow -ne 20 -or $continued.writeStartRow -ne 24) {
+        throw 'Mainline AppendExisting did not use the existing output as its base'
+    }
+    $excel = New-Object -ComObject Excel.Application
+    $excel.DisplayAlerts = $false
+    $wb = $excel.Workbooks.Open($output, 0, $true)
+    $ws = $wb.Worksheets.Item('Product Content And Site Exp')
+    if ($ws.Range('D20').Value2 -cne 'CUST-001' -or $ws.Range('D24').Value2 -cne 'CUST-001') { throw 'Mainline continued batch is missing' }
+    if ($excel.WorksheetFunction.CountA($ws.Range('A21:CP23')) -ne 0) { throw 'Mainline continued output gap is not three empty rows' }
+    if ($ws.Range('J50').Formula -ne '=1+2') { throw 'Mainline continued output changed a formula' }
+    $wb.Close($false)
+    $wb = $null
+    $excel.Quit()
+    $excel = $null
+
+    $raw = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'excel_mapper.ps1') -SourcePath (Join-Path $PSScriptRoot 'fixtures\A_sample.xls') -TargetPath $populated -OutputPath $output -OutputMode Replace
+    if ($LASTEXITCODE -ne 0) { throw ($raw | Out-String) }
+    $replaced = $raw | ConvertFrom-Json
+    if ($replaced.outputMode -ne 'Replace' -or $replaced.existingLastRow -ne 16 -or $replaced.writeStartRow -ne 20) {
+        throw 'Mainline Replace did not restart from file B'
+    }
+    $excel = New-Object -ComObject Excel.Application
+    $excel.DisplayAlerts = $false
+    $wb = $excel.Workbooks.Open($output, 0, $true)
+    $ws = $wb.Worksheets.Item('Product Content And Site Exp')
+    if ($null -ne $ws.Range('D24').Value2) { throw 'Mainline Replace retained data from the continued output' }
+    $wb.Close($false)
+    $wb = $null
+    $excel.Quit()
+    $excel = $null
+    if ((Get-FileHash $populated).Hash -ne $before) { throw 'Output mode tests changed the original mainline B file' }
+
     $blocked = Join-Path $work 'blocked.xlsx'
     $raw = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'excel_mapper.ps1') -SourcePath (Join-Path $PSScriptRoot 'fixtures\A_sample.xls') -TargetPath $conflict -OutputPath $blocked
     if ($LASTEXITCODE -eq 0 -or (Test-Path $blocked)) { throw 'Formula collision was not blocked' }

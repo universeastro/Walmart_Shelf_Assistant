@@ -85,6 +85,49 @@ class CompletionDialog(tk.Toplevel):
         super().destroy()
 
 
+class OutputModeDialog(tk.Toplevel):
+    def __init__(self, parent, output_name):
+        super().__init__(parent)
+        self.withdraw()
+        self.title("输出文件已存在")
+        self.transient(parent)
+        self.resizable(False, False)
+        self.result = None
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.bind("<Escape>", lambda _event: self.destroy())
+
+        body = ttk.Frame(self, padding=24)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text=f"{output_name} 已存在。请选择处理方式：", wraplength=440).pack(anchor="w")
+        ttk.Label(body, text="替换文件：以文件 B 重新生成输出。", style="Hint.TLabel").pack(anchor="w", pady=(12, 2))
+        ttk.Label(body, text="继续写入：保留现有内容，在末尾留 3 行后追加。", style="Hint.TLabel").pack(anchor="w")
+
+        actions = ttk.Frame(body)
+        actions.pack(fill="x", pady=(22, 0))
+        ttk.Button(actions, text="取消", command=self.destroy).pack(side="right")
+        ttk.Button(actions, text="继续写入", command=lambda: self._select("AppendExisting")).pack(side="right", padx=8)
+        replace = ttk.Button(actions, text="替换文件", command=lambda: self._select("Replace"))
+        replace.pack(side="right")
+
+        self.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        self.deiconify()
+        self.grab_set()
+        replace.focus_set()
+
+    def _select(self, result):
+        self.result = result
+        self.destroy()
+
+    @classmethod
+    def ask(cls, parent, output_name):
+        dialog = cls(parent, output_name)
+        parent.wait_window(dialog)
+        return dialog.result
+
+
 class ShelfAssistant(tk.Tk):
     def __init__(self, settings_path=None):
         super().__init__()
@@ -485,11 +528,20 @@ class ShelfAssistant(tk.Tk):
         path = filedialog.asksaveasfilename(
             title="选择输出文件",
             defaultextension=".xlsx",
+            confirmoverwrite=False,
             filetypes=[("Excel 工作簿", "*.xlsx"), ("所有文件", "*.*")],
             **self._browse_options(self.output_var, save=True),
         )
         if path:
             self.output_var.set(path)
+
+    def _choose_existing_output_mode(self, output):
+        return OutputModeDialog.ask(self, output.name)
+
+    def _effective_output_path(self, output, target):
+        if output.suffix or not target.suffix:
+            return output
+        return output.with_name(output.name + target.suffix)
 
     def _set_default_output(self, profile_label=None):
         profile_label = profile_label or self._active_profile_label
@@ -537,9 +589,19 @@ class ShelfAssistant(tk.Tk):
         if not self.output_var.get().strip():
             messagebox.showwarning("缺少输出路径", "请选择输出文件路径。")
             return
-        if output.resolve() in (target.resolve(), source.resolve()):
+        effective_output = self._effective_output_path(output, target)
+        if effective_output.resolve() in (target.resolve(), source.resolve()):
             messagebox.showwarning("输出路径无效", "输出文件不能覆盖文件 A 或文件 B。")
             return
+        if effective_output.exists() and not effective_output.is_file():
+            messagebox.showwarning("输出路径无效", "输出路径必须是 Excel 文件，不能是文件夹。")
+            return
+        output_exists = effective_output.is_file()
+        output_mode = "Replace"
+        if output_exists:
+            output_mode = self._choose_existing_output_mode(effective_output)
+            if output_mode is None:
+                return
         self.status_var.set("正在处理...")
         self.last_output = None
         self._profile_last_outputs[self._active_profile_label] = None
@@ -559,9 +621,19 @@ class ShelfAssistant(tk.Tk):
         self._write_log("导出范围：" + ("仅可见行" if row_mode == "Visible" else "全部数据行（包含隐藏行）"))
         profile = PROFILE_LABELS.get(self.profile_var.get(), "Mainline")
         self._write_log("映射方案：" + self.profile_var.get())
-        threading.Thread(target=self._run_worker, args=(source, target, output, row_mode, profile), daemon=True).start()
+        output_action = (
+            "在现有输出中继续写入"
+            if output_mode == "AppendExisting"
+            else ("替换现有输出" if output_exists else "生成新输出")
+        )
+        self._write_log("输出处理：" + output_action)
+        threading.Thread(
+            target=self._run_worker,
+            args=(source, target, output, row_mode, profile, output_mode),
+            daemon=True,
+        ).start()
 
-    def _run_worker(self, source, target, output, row_mode="Visible", profile="Mainline"):
+    def _run_worker(self, source, target, output, row_mode="Visible", profile="Mainline", output_mode="Replace"):
         command = [
             "powershell.exe",
             "-NoProfile",
@@ -579,6 +651,8 @@ class ShelfAssistant(tk.Tk):
             profile,
             "-RowMode",
             row_mode,
+            "-OutputMode",
+            output_mode,
         ]
         try:
             completed = subprocess.run(
