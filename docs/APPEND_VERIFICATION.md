@@ -38,5 +38,5 @@
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_append.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/verify-mapping/scripts/verify_mapping.ps1 -SourcePath tests/fixtures/A_sample.xls -TargetPath 文件/B模板.xlsx
+powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/verify-mapping/scripts/verify_mapping.ps1 -SourcePath tests/fixtures/A_sample.xls -TargetPath 文件/B模板01.xlsx
 ```

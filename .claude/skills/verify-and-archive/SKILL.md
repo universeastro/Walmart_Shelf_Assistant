@@ -59,7 +59,7 @@ ls -la --time-style=+%H:%M *.py *.ps1 *.md
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .claude/skills/verify-mapping/scripts/verify_mapping.ps1 `
   -SourcePath tests/fixtures/A_sample.xls `
-  -TargetPath 文件/B模板.xlsx
+  -TargetPath 文件/B模板01.xlsx
 ```
 
 退出码：`0` 全对 / `1` 有字段不一致 / `2` 源数据压根没写入。
@@ -76,7 +76,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 
 1. **歧义与降级路径**：`fallback-column` 的映射（当前是 `E -> Variant Group ID`）
    是否仍指向正确列？源表列序变动时会怎样？
-2. **空输入**：空模板（`文件/A模板.xls`）应返回 `rowsRead: 0` 而非报错。
+2. **空输入**：空模板（`文件/A模板01.xls`）应返回 `rowsRead: 0` 而非报错。
 3. **多行输入**：**已有现成工具，直接跑**（不要再手工造夹具）：
 
    ```powershell

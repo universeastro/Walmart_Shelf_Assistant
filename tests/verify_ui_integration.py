@@ -39,7 +39,7 @@ sys.path.insert(0, str(REPO))
 from app import ShelfAssistant  # noqa: E402
 
 SAMPLE = REPO / "tests" / "fixtures" / "A_sample.xls"
-TEMPLATE = REPO / "文件" / "B模板.xlsx"
+TEMPLATE = REPO / "文件" / "B模板01.xlsx"
 
 
 class UIIntegrationTests(unittest.TestCase):
