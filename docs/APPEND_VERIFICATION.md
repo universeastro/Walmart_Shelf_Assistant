@@ -32,7 +32,9 @@
 - Excel 专项测试与原映射回归启动后未返回结果，已中止；沙箱外重试被审批服务 503 阻止。上述运行测试均未判定通过。
 - 未修改用户业务工作簿，未更新桌面安装版。须先完成 Excel 验证，再打包安装。
 
-## 待执行
+## 复跑命令
+
+以下命令用于开发者回归；2026-09-11 的执行结果见上文，历史中止记录不代表当前状态。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_append.ps1
