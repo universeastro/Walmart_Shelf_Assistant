@@ -469,3 +469,9 @@ T02 已按上文更正完毕，用户决策已录入。
 - 720x620、880x680、1100x800 下分别检查主线/支线页面截图，无控件越界、重叠或文字截断。
 - `build.ps1` 重建成功；冻结版持续运行，`_internal/excel_mapper.ps1` 存在，归档包含 `windnd` 与 `windnd.windnd`。
 - `git diff --check`：通过。
+
+### 提交记录
+
+- 分支：`feature/req02-parallel`
+- 双页面、分方案路径持久化、测试与文档：`e5366ff feat: add profile-specific workflow pages`
+- T11、T12、T13 均已完成；未推送远端、未合并 `main`。
