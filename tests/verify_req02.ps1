@@ -13,6 +13,7 @@ try {
     }
     $before = (Get-FileHash -LiteralPath $target).Hash
     $emptySource = Join-Path $work 'empty-source.xlsx'
+    $aliasSource = Join-Path $work 'alias-source.xlsx'
     $excel = New-Object -ComObject Excel.Application
     $excel.Visible = $false
     $excel.DisplayAlerts = $false
@@ -23,12 +24,19 @@ try {
     $sourceWb.SaveAs($emptySource, 51)
     $sourceWb.Close($false)
     $sourceWb = $null
+    Copy-Item -LiteralPath $source -Destination $aliasSource
+    $sourceWb = $excel.Workbooks.Open($aliasSource, 0, $false)
+    $sourceWb.Worksheets.Item(1).Range('D1').Value2 = '自定义SKU'
+    $sourceWb.Save()
+    $sourceWb.Close($false)
+    $sourceWb = $null
     $excel.Quit()
     $excel = $null
 
     $cases = @(
         @{ Source = $source; RowMode = 'Visible'; WriteMode = 'Append'; ExpectedRows = 2; ExpectedStart = 12 },
         @{ Source = $source; RowMode = 'All'; WriteMode = 'Append'; ExpectedRows = 3; ExpectedStart = 12 },
+        @{ Source = $aliasSource; RowMode = 'Visible'; WriteMode = 'Append'; ExpectedRows = 2; ExpectedStart = 12 },
         @{ Source = $source; RowMode = 'Visible'; WriteMode = 'Replace'; ExpectedRows = 2; ExpectedStart = 2 },
         @{ Source = $emptySource; RowMode = 'Visible'; WriteMode = 'Replace'; ExpectedRows = 0; ExpectedStart = 2 }
     )

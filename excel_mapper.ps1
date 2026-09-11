@@ -361,7 +361,7 @@ try {
 
     $sourceDefinitions = if ($Profile -eq 'Req02') { @(
         @{ Key = 'SKU'; Names = @('SKU'); Fallback = ''; Targets = @('SKU') },
-        @{ Key = '自定义'; Names = @('自定义'); Fallback = ''; Targets = @('平台SKU') }
+        @{ Key = '自定义'; Names = @('自定义', '自定义SKU'); Fallback = ''; Targets = @('平台SKU') }
     ) } else { @(
         @{ Key = '自定义SKU'; Names = @('自定义SKU'); Fallback = 'D'; Targets = @('SKU') },
         @{ Key = '标题'; Names = @('标题'); Fallback = 'N'; Targets = @('Product Name') },
@@ -412,7 +412,7 @@ try {
     }
 
     if ($Profile -eq 'Req02' -and $resolvedMappings.Count -ne 2) {
-        throw "支线映射不完整：必须同时找到源字段 SKU、 自定义及目标字段 SKU、 平台SKU。"
+        throw "支线映射不完整：必须同时找到源字段 SKU、自定义（兼容自定义SKU）及目标字段 SKU、平台SKU。"
     }
 
     $sourceDataStart = $sourceHeaderRow + 1
