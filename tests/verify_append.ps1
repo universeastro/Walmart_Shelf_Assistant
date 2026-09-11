@@ -17,12 +17,14 @@ try {
     $ws.Range('H7').Value2 = 'OLD-TITLE'
     $ws.Range('G16').Value2 = 0
     $ws.Rows.Item(16).Hidden = $true
-    $ws.Range('J50').NumberFormat = 'General'
+    $ws.Range('J50').NumberFormat = '0.00'
     $ws.Range('J50').Formula = '=1+2'
+    if (-not $ws.Range('J50').HasFormula) { throw 'Fixture formula J50 was not created' }
     $ws.Range('D100').Interior.Color = 65535
     $wb.SaveAs($populated, 51)
-    $ws.Range('H20').NumberFormat = 'General'
+    $ws.Range('H20').NumberFormat = '0.00'
     $ws.Range('H20').Formula = '=1+1'
+    if (-not $ws.Range('H20').HasFormula) { throw 'Fixture formula H20 was not created' }
     $wb.SaveAs($conflict, 51)
     $wb.Close($false)
     $wb = $null
@@ -58,6 +60,10 @@ try {
     $blocked = Join-Path $work 'blocked.xlsx'
     $raw = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'excel_mapper.ps1') -SourcePath (Join-Path $PSScriptRoot 'fixtures\A_sample.xls') -TargetPath $conflict -OutputPath $blocked
     if ($LASTEXITCODE -eq 0 -or (Test-Path $blocked)) { throw 'Formula collision was not blocked' }
+    $failure = $raw | ConvertFrom-Json
+    if ($failure.success -or $failure.stage -ne '检查追加位置' -or $failure.message -notmatch 'H20:H20') {
+        throw 'Failure was not the expected formula collision'
+    }
     Write-Output 'PASS: append location, both row modes, old data, gap, template hash, formula protection.'
 } finally {
     if ($wb) { $wb.Close($false) }

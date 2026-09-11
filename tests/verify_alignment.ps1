@@ -87,12 +87,18 @@ try {
     # --- 断言 1：按实际 Color 表头独立确认对齐 ---
     $checkedData = 0
     $colorColumns = @()
+    $headerMatches = 0
     for ($r = 1; $r -le 10; $r++) {
+        $labels = @{}
         for ($c = $used.Column; $c -le $lastCol; $c++) {
-            if ([string]$tpl.Cells.Item($r, $c).Text -match '^\s*Color\s*$') { $colorColumns += $c }
+            $labels[$c] = ([string]$tpl.Cells.Item($r, $c).Text).Trim().ToLowerInvariant()
+        }
+        if ($labels.Values -contains 'sku' -and $labels.Values -contains 'product name') {
+            $headerMatches++
+            $colorColumns = @($labels.Keys | Where-Object { $labels[$_] -eq 'color' })
         }
     }
-    if ($colorColumns.Count -ne 1 -or $mappedColumns -notcontains $colorColumns[0]) { throw 'Expected one mapped Color header.' }
+    if ($headerMatches -ne 1 -or $colorColumns.Count -ne 1 -or $mappedColumns -notcontains $colorColumns[0]) { throw 'Expected one mapped Color header on the field-name row.' }
     for ($k = 0; $k -lt $written; $k++) {
         $r = $DataStartRow + $k
         foreach ($c in $mappedColumns) {
