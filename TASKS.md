@@ -2,7 +2,7 @@
 
 | 编号 | 负责人 | 状态 | 允许修改模块 | 依赖 |
 |---|---|---|---|---|
-| T01 | Codex | 进行中 | `PROJECT.md`、`TASKS.md`、`HANDOFF.md` | 无 |
+| T01 | Codex | 已完成 | `PROJECT.md`、`TASKS.md`、`HANDOFF.md` | 无 |
 | T02 | Claude | 已完成 | 需求/验收审查；未经协调不改实现文件 | 先读 T01 文档 |
 | T03 | Codex | 阻塞 | `excel_mapper.ps1`、映射配置/参数 | T02 意见；平台SKU确认 |
 | T04 | Codex | 待开始 | `app.py` | T03 接口稳定 |
