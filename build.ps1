@@ -13,6 +13,11 @@
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 
+py -c "import PyInstaller, windnd"
+if ($LASTEXITCODE -ne 0) {
+    throw "Missing build dependencies. Run: py -m pip install -r requirements-build.txt"
+}
+
 Write-Host "==> Cleaning previous build"
 Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
 Remove-Item -Force WalmartShelfAssistant.spec -ErrorAction SilentlyContinue
@@ -20,6 +25,7 @@ Remove-Item -Force WalmartShelfAssistant.spec -ErrorAction SilentlyContinue
 Write-Host "==> Building"
 py -m PyInstaller --noconfirm --clean --windowed `
     --name WalmartShelfAssistant `
+    --hidden-import windnd `
     --add-data "excel_mapper.ps1;." `
     app.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }

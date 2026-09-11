@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -53,7 +54,7 @@ class UILayoutTests(unittest.TestCase):
             self.window.run_mapping()
             worker.return_value.start.assert_called_once()
         self.assertTrue(self.window.running)
-        for control in self.window.file_controls + self.window.row_mode_buttons + [self.window.run_button]:
+        for control in self.window.file_controls + self.window.row_mode_buttons + [self.window.run_button, self.window.profile_combo]:
             self.assertIn("disabled", control.state())
         with patch("app.messagebox.showerror"):
             self.window._finish({"success": False, "message": "test failure"}, 1)
@@ -61,6 +62,7 @@ class UILayoutTests(unittest.TestCase):
         self.assertEqual(float(self.window.progress["value"]), 0)
         for control in self.window.file_controls + self.window.row_mode_buttons + [self.window.run_button]:
             self.assertNotIn("disabled", control.state())
+        self.assertIn("readonly", self.window.profile_combo.state())
 
     def test_browse_uses_previous_directory_and_output_name(self):
         output = Path(self.temp.name) / "new.xlsx"
@@ -96,6 +98,48 @@ class UILayoutTests(unittest.TestCase):
         for entry in self.window.file_controls[::2]:
             self.assertEqual(entry.bind("<Enter>"), "")
         self.assertFalse(hasattr(self.window, "_schedule_path_tip"))
+
+    def test_drop_parses_windows_paths_and_rejects_multiple_files(self):
+        paths = self.window._parse_drop_paths("{C:/folder with spaces/a.xls} C:/b.xlsx")
+        self.assertEqual(paths, [Path("C:/folder with spaces/a.xls"), Path("C:/b.xlsx")])
+        with patch("app.messagebox.showwarning") as warning:
+            result = self.window._handle_drop(SimpleNamespace(data="a.xls b.xlsx"), self.window.source_var, "source")
+        self.assertEqual(result, "break")
+        warning.assert_called_once()
+
+    def test_drop_validates_extension_and_selects_req02_profile(self):
+        target = Path(self.temp.name) / "02" / "B模板.xls"
+        target.parent.mkdir()
+        target.touch()
+        with patch("app.messagebox.showwarning") as warning:
+            self.window._handle_drop_paths([str(target)], self.window.target_var, "target")
+            self.assertEqual(self.window.target_var.get(), str(target))
+            self.assertEqual(self.window.profile_var.get(), "支线 02")
+            self.window._handle_drop_paths([str(target.with_suffix(".txt"))], self.window.target_var, "target")
+        warning.assert_called_once()
+
+    def test_drop_is_ignored_while_running(self):
+        self.window.running = True
+        with patch("app.messagebox.showwarning") as warning:
+            self.window._handle_drop(SimpleNamespace(data="C:/new.xls"), self.window.source_var, "source")
+        self.assertEqual(self.window.source_var.get(), "")
+        warning.assert_not_called()
+
+    def test_selecting_source_does_not_override_manual_profile(self):
+        source = Path(self.temp.name) / "source.xls"
+        source.touch()
+        self.window.target_var.set(str(Path(self.temp.name) / "custom-target.xls"))
+        self.window.profile_var.set("支线 02")
+        with patch("app.filedialog.askopenfilename", return_value=str(source)):
+            self.window._choose_source()
+        self.assertEqual(self.window.profile_var.get(), "支线 02")
+
+    def test_worker_passes_selected_profile(self):
+        completed = SimpleNamespace(stdout='{"success":true}', stderr="", returncode=0)
+        with patch("app.subprocess.run", return_value=completed) as run, patch.object(self.window, "after"):
+            self.window._run_worker(Path("a.xls"), Path("b.xls"), Path("out.xlsx"), "Visible", "Req02")
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("-Profile") + 1], "Req02")
 
 
 if __name__ == "__main__":

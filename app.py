@@ -11,10 +11,16 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+try:
+    import windnd
+except ImportError:
+    windnd = None
+
 
 APP_DIR = Path(__file__).resolve().parent
 MAPPER = APP_DIR / "excel_mapper.ps1"
 SETTINGS_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".config") / "WalmartShelfAssistant" / "settings.json"
+PROFILE_LABELS = {"主线 01": "Mainline", "支线 02": "Req02"}
 
 
 class CompletionDialog(tk.Toplevel):
@@ -87,6 +93,7 @@ class ShelfAssistant(tk.Tk):
         self.source_var = tk.StringVar()
         self.target_var = tk.StringVar()
         self.output_var = tk.StringVar()
+        self.profile_var = tk.StringVar(value="主线 01")
         self.row_mode_var = tk.StringVar(value="Visible")
         self.status_var = tk.StringVar(value="请选择文件 A 和文件 B")
         self.running = False
@@ -101,6 +108,7 @@ class ShelfAssistant(tk.Tk):
             "output": self.output_var,
         }
         self._load_paths()
+        self._select_profile_for_target(self.target_var.get())
         for variable in self._path_vars.values():
             variable.trace_add("write", self._mark_paths_dirty)
         self._build_ui()
@@ -195,15 +203,19 @@ class ShelfAssistant(tk.Tk):
         header.pack(fill="x", pady=(0, 18))
         ttk.Label(header, text="沃尔玛上架助手", style="Title.TLabel").pack(side="left")
         ttk.Label(header, text="商品上架 / Excel", style="Hint.TLabel").pack(side="right", anchor="s", pady=6)
+        self.profile_combo = ttk.Combobox(header, textvariable=self.profile_var,
+                                          values=tuple(PROFILE_LABELS), state="readonly", width=12)
+        self.profile_combo.pack(side="right", padx=(0, 18), pady=4)
+        ttk.Label(header, text="方案", style="Hint.TLabel").pack(side="right", padx=(0, 6), pady=6)
         ttk.Separator(outer).pack(fill="x", pady=(0, 18))
         ttk.Label(outer, text="文件", style="Section.TLabel").pack(anchor="w", pady=(0, 4))
         panel = ttk.Frame(outer)
         panel.pack(fill="x")
         panel.columnconfigure(1, weight=1)
         self.file_controls = []
-        self._file_row(panel, 0, "文件 A（源数据）", self.source_var, self._choose_source)
-        self._file_row(panel, 1, "文件 B（沃尔玛模板）", self.target_var, self._choose_target)
-        self._file_row(panel, 2, "输出文件", self.output_var, self._choose_output)
+        self._file_row(panel, 0, "文件 A（源数据）", self.source_var, self._choose_source, "source")
+        self._file_row(panel, 1, "文件 B（目标文件）", self.target_var, self._choose_target, "target")
+        self._file_row(panel, 2, "输出文件", self.output_var, self._choose_output, "output")
 
         ttk.Label(outer, text="导出范围", style="Section.TLabel").pack(anchor="w", pady=(18, 4))
         options = ttk.Frame(outer)
@@ -243,7 +255,7 @@ class ShelfAssistant(tk.Tk):
         scrollbar.pack(side="right", fill="y")
         self.log.pack(side="left", fill="both", expand=True)
 
-    def _file_row(self, parent, row, label, variable, command):
+    def _file_row(self, parent, row, label, variable, command, kind):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 18), pady=6)
         entry = ttk.Entry(parent, textvariable=variable, width=12,
                           font=("Microsoft YaHei UI", 10), foreground="#252b32")
@@ -251,7 +263,46 @@ class ShelfAssistant(tk.Tk):
         entry.xview_moveto(1)
         button = ttk.Button(parent, text="浏览...", command=command)
         button.grid(row=row, column=2, padx=(10, 0), pady=6)
+        if windnd is not None:
+            try:
+                windnd.hook_dropfiles(
+                    entry,
+                    func=lambda paths, v=variable, k=kind: self.after(0, self._handle_drop_paths, paths, v, k),
+                    force_unicode=True,
+                )
+            except (OSError, RuntimeError):
+                pass
         self.file_controls.extend((entry, button))
+
+    def _parse_drop_paths(self, data):
+        if isinstance(data, (list, tuple)):
+            return [Path(os.fsdecode(item)) for item in data if item]
+        try:
+            return [Path(item) for item in self.tk.splitlist(data) if item.strip()]
+        except (tk.TclError, TypeError, ValueError):
+            return []
+
+    def _handle_drop(self, event, variable, kind):
+        return self._handle_drop_paths(getattr(event, "data", ""), variable, kind)
+
+    def _handle_drop_paths(self, data, variable, kind):
+        if self.running:
+            return "break"
+        paths = self._parse_drop_paths(data)
+        if len(paths) != 1:
+            messagebox.showwarning("无法导入", "请每次只拖入一个 Excel 文件。", parent=self)
+            return "break"
+        path = paths[0]
+        if path.suffix.lower() not in {".xls", ".xlsx", ".xlsm"}:
+            messagebox.showwarning("文件类型不支持", "请选择 .xls、.xlsx 或 .xlsm 文件。", parent=self)
+            return "break"
+        if kind != "output" and not path.is_file():
+            messagebox.showwarning("文件不存在", "拖入的 Excel 文件不存在。", parent=self)
+            return "break"
+        variable.set(str(path))
+        if kind in {"source", "target"}:
+            self._set_default_output(select_profile=(kind == "target"))
+        return "break"
 
     def _browse_options(self, variable, save=False):
         options = {"parent": self}
@@ -302,7 +353,7 @@ class ShelfAssistant(tk.Tk):
         )
         if path:
             self.target_var.set(path)
-            self._set_default_output()
+            self._set_default_output(select_profile=True)
 
     def _choose_output(self):
         path = filedialog.asksaveasfilename(
@@ -314,11 +365,20 @@ class ShelfAssistant(tk.Tk):
         if path:
             self.output_var.set(path)
 
-    def _set_default_output(self):
+    def _set_default_output(self, select_profile=False):
         target = self.target_var.get().strip()
         if target and not self.output_var.get().strip():
             target_path = Path(target)
             self.output_var.set(str(target_path.with_name(target_path.stem + "_已填充.xlsx")))
+        if select_profile:
+            self._select_profile_for_target(target)
+
+    def _select_profile_for_target(self, target):
+        target_norm = target.strip().replace("/", "\\").lower()
+        if target_norm.endswith("\\02\\b模板.xls") or "\\02\\b模板.xls" in target_norm:
+            self.profile_var.set("支线 02")
+        elif target_norm:
+            self.profile_var.set("主线 01")
 
     def _write_log(self, text):
         self.log.configure(state="normal")
@@ -352,14 +412,17 @@ class ShelfAssistant(tk.Tk):
         self.run_button.configure(state="disabled", text="正在填充...")
         for control in self.file_controls:
             control.configure(state="disabled")
+        self.profile_combo.configure(state="disabled")
         row_mode = self.row_mode_var.get()
         for button in self.row_mode_buttons:
             button.configure(state="disabled")
         self._write_log(f"开始处理：{source.name} -> {target.name}")
         self._write_log("导出范围：" + ("仅可见行" if row_mode == "Visible" else "全部数据行（包含隐藏行）"))
-        threading.Thread(target=self._run_worker, args=(source, target, output, row_mode), daemon=True).start()
+        profile = PROFILE_LABELS.get(self.profile_var.get(), "Mainline")
+        self._write_log("映射方案：" + self.profile_var.get())
+        threading.Thread(target=self._run_worker, args=(source, target, output, row_mode, profile), daemon=True).start()
 
-    def _run_worker(self, source, target, output, row_mode="Visible"):
+    def _run_worker(self, source, target, output, row_mode="Visible", profile="Mainline"):
         command = [
             "powershell.exe",
             "-NoProfile",
@@ -373,6 +436,8 @@ class ShelfAssistant(tk.Tk):
             str(target),
             "-OutputPath",
             str(output),
+            "-Profile",
+            profile,
             "-RowMode",
             row_mode,
         ]
@@ -398,6 +463,7 @@ class ShelfAssistant(tk.Tk):
         self.run_button.configure(state="normal", text="开始填充")
         for control in self.file_controls:
             control.configure(state="normal")
+        self.profile_combo.configure(state="readonly")
         for button in self.row_mode_buttons:
             button.configure(state="normal")
         if payload.get("success") and returncode == 0:

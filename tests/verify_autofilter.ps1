@@ -24,7 +24,7 @@ $ErrorActionPreference = 'Stop'
 # are hidden by the filter too and inflate `rowsHiddenSkipped` - the counter
 # reports 6 where only 4 rows held data. Output is unaffected.
 
-if (-not $Target) { $Target = Join-Path (Split-Path $PSScriptRoot -Parent) '文件\B模板01.xlsx' }
+if (-not $Target) { $Target = Join-Path (Split-Path $PSScriptRoot -Parent) '文件\01\B模板01.xlsx' }
 
 $repo = Split-Path $PSScriptRoot -Parent
 $mapper = Join-Path $repo 'excel_mapper.ps1'

@@ -48,7 +48,7 @@ PowerShell 5.1 读无 BOM 的 `.ps1` 按 GBK 解码，中文字面量全乱、�
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .claude/skills/verify-mapping/scripts/verify_mapping.ps1 `
   -SourcePath tests/fixtures/A_sample.xls `
-  -TargetPath 文件/B模板01.xlsx
+  -TargetPath 文件/01/B模板01.xlsx
 ```
 
 退出码 `0` 全对 / `1` 有字段不一致 / `2` 源数据压根没写入。
@@ -63,7 +63,7 @@ Excel 会合并条件相同的相邻列规则（48 条 → 43 条），覆盖范
 判断依据是 **sqref 覆盖范围**是否相等，不是规则数。验证报告 2.2 节有实测数据。
 
 **不要把 `rowsRead: 0` 当成缺陷。**
-`文件/A模板01.xls` 是纯表头空模板，返回 0 行是正确行为。要用带数据的文件验证。
+`文件/01/A模板01.xls` 是纯表头空模板，返回 0 行是正确行为。要用带数据的文件验证。
 
 ## 待确认（需人工决策）
 
@@ -100,7 +100,7 @@ Excel 会合并条件相同的相邻列规则（48 条 → 43 条），覆盖范
 若业务要求「A 表第 N 行 = B 表第 N 行」，当前实现不满足。
 
 **2. 模板只有 3 个 Key Features 列，「五点4」「五点5」会被丢弃。**
-实测确认 `文件/B模板01.xlsx` 只有 `Key Features (+)` / `1 (+)` / `2 (+)`，
+实测确认 `文件/01/B模板01.xlsx` 只有 `Key Features (+)` / `1 (+)` / `2 (+)`，
 以及 `Additional Image URL (+)` / `1 (+)`。映射器会把这 8 个字段报进 `skipped`，
 GUI 写进日志面板。**这是业务侧要拍板的事——不要擅自改映射去凑这些字段。**
 
@@ -234,3 +234,4 @@ $block[($r - 1), ($c - 1)] = $value  # ✅
 
 > 本仓库**没有装 pytest**，用 `unittest`。
 - `tests/diag_cells.ps1` —— 读取指定单元格的公式与计算值，排查用。
+- `tests/make_req02_fixture.ps1` + `tests/verify_req02.ps1` —— 支线 02 的合成夹具与独立验证，覆盖 Visible/All、两字段逐格一致、旧值清理、公式保留和原模板哈希。

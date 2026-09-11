@@ -5,6 +5,10 @@
     [string]$TargetPath,
     [Parameter(Mandatory = $true)]
     [string]$OutputPath,
+    [ValidateSet('Mainline', 'Req02')]
+    [string]$Profile = 'Mainline',
+    [ValidateSet('Append', 'Replace')]
+    [string]$WriteMode = 'Append',
     [ValidateSet('Visible', 'All')]
     [string]$RowMode = 'Visible'
 )
@@ -83,7 +87,40 @@ function Find-SourceColumn($Worksheet, [string[]]$HeaderNames, [string]$Fallback
     return $null
 }
 
-function Find-TargetSheet($Workbook) {
+function Find-TargetSheet($Workbook, [string]$MappingProfile = 'Mainline') {
+    if ($MappingProfile -eq 'Req02') {
+        $matches = New-Object System.Collections.Generic.List[object]
+        foreach ($worksheet in $Workbook.Worksheets) {
+            if ($worksheet.Visible -ne -1) { continue }
+            $used = $worksheet.UsedRange
+            try {
+                $maxRow = [math]::Min(10, $used.Row + $used.Rows.Count - 1)
+                $maxColumn = [math]::Min(50, $used.Column + $used.Columns.Count - 1)
+                for ($row = $used.Row; $row -le $maxRow; $row++) {
+                    $skuFound = $false
+                    $platformSkuFound = $false
+                    for ($column = $used.Column; $column -le $maxColumn; $column++) {
+                        $text = Normalize-Text (Get-CellText $worksheet $row $column)
+                        if ($text -eq 'sku') { $skuFound = $true }
+                        if ($text -eq '平台sku') { $platformSkuFound = $true }
+                    }
+                    if ($skuFound -and $platformSkuFound) {
+                        $matches.Add($worksheet)
+                        break
+                    }
+                }
+            } finally {
+                [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($used)
+            }
+        }
+        if ($matches.Count -eq 0) { throw '未找到同时包含 SKU 和平台SKU 的支线目标工作表。' }
+        if ($matches.Count -gt 1) {
+            $names = ($matches | ForEach-Object { $_.Name }) -join ', '
+            throw "多个工作表同时包含 SKU 和平台SKU，无法安全选择：$names"
+        }
+        return $matches[0]
+    }
+
     $best = $null
     $bestScore = -1
     foreach ($worksheet in $Workbook.Worksheets) {
@@ -115,7 +152,7 @@ function Find-TargetSheet($Workbook) {
     return $best
 }
 
-function Find-TargetColumns($Worksheet) {
+function Find-TargetColumns($Worksheet, [string]$MappingProfile = 'Mainline') {
     $used = $Worksheet.UsedRange
     $maxRow = $used.Row + $used.Rows.Count - 1
     $maxColumn = $used.Column + $used.Columns.Count - 1
@@ -123,18 +160,25 @@ function Find-TargetColumns($Worksheet) {
     $descriptionRow = $null
     $leafHeaderRow = $null
 
-    # Find the row containing the leaf field names (SKU, Product Name, ...).
+    # Find the row containing the leaf field names for the selected profile.
     # Rows above it are the hierarchical group headers. Rows below it contain
     # XML names and descriptions and must not participate in label matching.
     for ($row = $used.Row; $row -le [math]::Min($maxRow, 10); $row++) {
         $skuFound = $false
         $productNameFound = $false
+        $platformSkuFound = $false
         for ($column = $used.Column; $column -le $maxColumn; $column++) {
             $text = Normalize-Text (Get-CellText $Worksheet $row $column)
             if ($text -eq 'sku') { $skuFound = $true }
             if ($text -eq 'product name') { $productNameFound = $true }
+            if ($text -eq '平台sku') { $platformSkuFound = $true }
         }
-        if ($skuFound -and $productNameFound) {
+        $rowMatches = if ($MappingProfile -eq 'Req02') {
+            $skuFound -and $platformSkuFound
+        } else {
+            $skuFound -and $productNameFound
+        }
+        if ($rowMatches) {
             $leafHeaderRow = $row
             break
         }
@@ -146,7 +190,7 @@ function Find-TargetColumns($Worksheet) {
     if ($headerRows.Count -eq 0) { $headerRows.Add($leafHeaderRow) }
     $headerLastRow = $leafHeaderRow
 
-    for ($row = $headerLastRow + 1; $row -le [math]::Min($maxRow, $headerLastRow + 3); $row++) {
+    for ($row = $headerLastRow + 1; $MappingProfile -eq 'Mainline' -and $row -le [math]::Min($maxRow, $headerLastRow + 3); $row++) {
         $keywordHits = 0
         for ($column = $used.Column; $column -le $maxColumn; $column++) {
             $sample = Normalize-Text (Get-CellText $Worksheet $row $column)
@@ -236,14 +280,14 @@ function Get-LastRecordRow($Worksheet, [int]$DataStart) {
 function Assert-WriteRegion($Worksheet, $Mappings, [int]$Start, [int]$Count) {
     if ($Count -eq 0) { return }
     $end = $Start + $Count - 1
-    if ($end -gt $Worksheet.Rows.Count) { throw '追加数据超过工作表最大行数。' }
+    if ($end -gt $Worksheet.Rows.Count) { throw '写入数据超过工作表最大行数。' }
     foreach ($mapping in $Mappings) {
         $letter = $mapping.Target.Letter
         $range = $Worksheet.Range("${letter}${Start}:${letter}${end}")
         try {
             # Mixed ranges return null, so only an explicit false is safe.
             if ($range.HasFormula -ne $false -or $range.MergeCells -ne $false) {
-                throw "追加区域 ${letter}${Start}:${letter}${end} 包含公式或合并单元格，为保护模板已停止写入。"
+                throw "写入区域 ${letter}${Start}:${letter}${end} 包含公式或合并单元格，为保护模板已停止写入。"
             }
         } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) }
     }
@@ -269,12 +313,17 @@ $result = [ordered]@{
     existingLastRow = 0
     writeStartRow = 0
     rowMode = $RowMode
+    profile = $Profile
+    writeMode = $WriteMode
     mappings = @()
     skipped = @()
     message = ''
 }
 
 try {
+    if ($Profile -ne 'Req02' -and $WriteMode -ne 'Append') {
+        throw 'WriteMode Replace 仅适用于支线 Req02。'
+    }
     $resolvedOutput = [System.IO.Path]::GetFullPath($OutputPath)
     if (Test-Path -LiteralPath $resolvedOutput -PathType Container) { throw '输出路径是文件夹，请指定完整的 Excel 文件名。' }
     if (-not [System.IO.Path]::GetExtension($resolvedOutput)) { $resolvedOutput += [System.IO.Path]::GetExtension($TargetPath) }
@@ -303,14 +352,17 @@ try {
     $targetWb = $excel.Workbooks.Open($workingTargetPath, 0, $false)
     $stage = '匹配并写入数据'
     $sourceWs = $sourceWb.Worksheets.Item(1)
-    $targetWs = Find-TargetSheet $targetWb
+    $targetWs = Find-TargetSheet $targetWb $Profile
     $result.targetSheet = $targetWs.Name
-    $targetInfo = Find-TargetColumns $targetWs
+    $targetInfo = Find-TargetColumns $targetWs $Profile
     $sourceUsed = $sourceWs.UsedRange
     $sourceHeaderRow = $sourceUsed.Row
     $sourceLastRow = $sourceUsed.Row + $sourceUsed.Rows.Count - 1
 
-    $sourceDefinitions = @(
+    $sourceDefinitions = if ($Profile -eq 'Req02') { @(
+        @{ Key = 'SKU'; Names = @('SKU'); Fallback = ''; Targets = @('SKU') },
+        @{ Key = '自定义'; Names = @('自定义'); Fallback = ''; Targets = @('平台SKU') }
+    ) } else { @(
         @{ Key = '自定义SKU'; Names = @('自定义SKU'); Fallback = 'D'; Targets = @('SKU') },
         @{ Key = '标题'; Names = @('标题'); Fallback = 'N'; Targets = @('Product Name') },
         @{ Key = '长描述'; Names = @('长描述'); Fallback = 'O'; Targets = @('Site Description') },
@@ -334,7 +386,7 @@ try {
         # helper column B as the source for Variant Group ID.
         @{ Key = '父SKU'; Names = @(); Fallback = 'E'; Targets = @('Variant Group ID') },
         @{ Key = '代理链接100*100缩率图'; Names = @('代理链接100*100缩率图'); Fallback = 'AX'; Targets = @('Swatch Image URL') }
-    )
+    ) }
 
     $resolvedMappings = New-Object System.Collections.Generic.List[object]
     foreach ($definition in $sourceDefinitions) {
@@ -359,6 +411,10 @@ try {
         }
     }
 
+    if ($Profile -eq 'Req02' -and $resolvedMappings.Count -ne 2) {
+        throw "支线映射不完整：必须同时找到源字段 SKU、 自定义及目标字段 SKU、 平台SKU。"
+    }
+
     $sourceDataStart = $sourceHeaderRow + 1
     $dataRows = New-Object System.Collections.Generic.List[int]
     for ($row = $sourceDataStart; $row -le $sourceLastRow; $row++) {
@@ -378,12 +434,32 @@ try {
     }
     $result.rowsRead = $dataRows.Count
 
-    $stage = '检查追加位置'
+    $stage = if ($Profile -eq 'Req02' -and $WriteMode -eq 'Replace') { '检查替换区域' } else { '检查追加位置' }
     $result.existingLastRow = Get-LastRecordRow $targetWs $targetInfo.DataStart
-    $writeStart = if ($result.existingLastRow -gt 0) { $result.existingLastRow + 4 } else { $targetInfo.DataStart }
+    $writeStart = if ($Profile -eq 'Req02' -and $WriteMode -eq 'Replace') {
+        $targetInfo.DataStart
+    } elseif ($result.existingLastRow -gt 0) {
+        $result.existingLastRow + 4
+    } else {
+        $targetInfo.DataStart
+    }
     $result.writeStartRow = $writeStart
-    Assert-WriteRegion $targetWs $resolvedMappings $writeStart $dataRows.Count
-    $stage = '写入追加数据'
+    if ($Profile -eq 'Req02' -and $WriteMode -eq 'Replace' -and $dataRows.Count -gt 0) {
+        $clearEnd = [math]::Max($result.existingLastRow, $writeStart + $dataRows.Count - 1)
+        if ($clearEnd -ge $writeStart) {
+            Assert-WriteRegion $targetWs $resolvedMappings $writeStart ($clearEnd - $writeStart + 1)
+            $stage = '清理支线旧数据'
+            foreach ($mapping in $resolvedMappings) {
+                $letter = $mapping.Target.Letter
+                $range = $targetWs.Range("${letter}${writeStart}:${letter}${clearEnd}")
+                try { $range.ClearContents() }
+                finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) }
+            }
+        }
+    } else {
+        Assert-WriteRegion $targetWs $resolvedMappings $writeStart $dataRows.Count
+    }
+    $stage = if ($Profile -eq 'Req02') { '写入支线数据' } else { '写入追加数据' }
 
     for ($index = 0; $index -lt $dataRows.Count; $index++) {
         $sourceRow = $dataRows[$index]
@@ -391,8 +467,14 @@ try {
         foreach ($mapping in $resolvedMappings) {
             $value = Get-CellValue $sourceWs $sourceRow $mapping.Source.Column
             if ($null -eq $value) { $value = '' }
-            $alignment = if ((Normalize-Text $mapping.Target.Leaf) -eq 'color') { -4131 } else { 5 }
-            Set-CellValue $targetWs $targetRow $mapping.Target.Column $value $alignment
+            if ($Profile -eq 'Req02') {
+                $cell = $targetWs.Cells.Item($targetRow, $mapping.Target.Column)
+                try { $cell.Value2 = $value }
+                finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($cell) }
+            } else {
+                $alignment = if ((Normalize-Text $mapping.Target.Leaf) -eq 'color') { -4131 } else { 5 }
+                Set-CellValue $targetWs $targetRow $mapping.Target.Column $value $alignment
+            }
         }
         $result.rowsWritten++
     }

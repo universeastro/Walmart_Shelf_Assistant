@@ -306,3 +306,133 @@ T02 已按上文更正完毕，用户决策已录入。
 ## 审查结束 2026-09-11 17:46
 
 控制权交回实现方。**解除 T07 阻塞的唯一条件是 C-01 由用户裁决。**
+
+## 2026-09-11 Claude 最新需求对照审查（T06）
+
+### 审查口径
+
+- 本轮以主负责人交付的最新验收口径为准：`A.SKU -> B.SKU`、
+  `A.自定义 -> B.平台SKU`，数据从目标第 2 行开始**替换**写入。
+- 该口径取代本文上文的“默认追加 / 平台SKU 暂不写”历史结论；
+  历史段落仅作决策过程留档，不再是当前验收依据。
+
+### 发现（已通知 Codex）
+
+1. **P0 - GUI 主路径实际仍执行追加。** `excel_mapper.ps1` 的 `WriteMode`
+   默认为 `Append`，`app.py` 启动子进程时没有传 `-WriteMode Replace`。
+   因此 GUI 选择“支线 02”会从旧数据末行 + 4 追加，不会从第 2 行替换。
+   解除条件：Req02 的 GUI 调用明确传入 `Replace`，或映射器将 Req02 默认定义为替换，
+   并用 GUI 端到端用例断言 `writeStartRow = 2`和旧值清理。
+2. **P1 - 手动 profile 选择会被 A 路径操作静默覆盖。** 选择“支线 02”后，
+   再浏览或拖入 A 会调用 `_set_default_output()`，其中又调用
+   `_select_profile_for_target()`。若 B 是自定义路径/临时副本，profile 会被改回“主线 01”。
+   解除条件：自动选择只在 B 路径真正变化时发生，并增加“手动选支线后再选 A”的回归用例。
+3. **P1 - 支线验证与当前产品主路径不一致。** `tests/verify_req02.ps1`
+   把 `Append` 当作前两个主用例，`Replace` 只测一个显式脚本分支；
+   `tests/verify_ui_integration.py` 没有 Req02 的 GUI 端到端用例。
+   解除条件：专用验证以第 2 行替换为默认契约，并补 GUI 真实调用覆盖。
+4. **P2 - 共享文档尚未收敛。** `PROJECT.md`、`TASKS.md`、`README.md`
+   仍将 Req02 默认写成追加，与本轮验收口径相反。
+
+### 已通过验证
+
+- Req02 合成夹具（审查期间替换契约版）：`Visible` 2 行 / `All` 3 行，
+  两字段逐格一致，公式保留，原模板哈希不变。
+- 主线必跑映射验证：12/12 通过。
+- Python 路径/UI 单元验证：23/23 通过。
+- GUI 主线真实集成：4/4 通过。
+
+### 审查状态
+
+- T06 保持“审查中”；上述 P0/P1 未修复前不通过交付审查。
+- 本轮未修改 `excel_mapper.ps1`、`app.py` 或支线测试，符合 Claude 的文档/审查边界。
+
+## 2026-09-11 Claude T06 审查口径更正
+
+> 本节更正紧邻上一节的“最新需求对照审查”，不改写历史记录。
+
+- 主负责人复核指明：用户本次最新消息只更正
+  `A.D列“自定义” -> B.B列“平台SKU”`，**没有更改写入语义**。
+- 写入语义继续以本文“用户决策（2026-09-11）——T03 的输入”第 2 点及
+  “Claude 流程补齐与 C-01 复核”为准：**Req02 默认 `Append`，真实 B 从 R700 起；
+  `Replace` 只是显式可选模式**。
+- 因此上一节 P0、P1（“验证与主路径不一致”）及 P2 中以“默认替换”为前提的判断
+  **全部撤回**；现行 `WriteMode = Append`、GUI 不显式传 `WriteMode`、
+  专用测试同时覆盖 Append/Replace 是一致的设计。
+- 上一节关于“手动 profile 选择会被 A 路径操作覆盖”的发现仍成立，
+  与 Append/Replace 裁决无关，继续作为 T06 待处理项。
+
+## 2026-09-11 Claude T06 最终审查结论
+
+### 结论
+
+- **实现审查通过，无剩余阻断问题。**
+- 最终契约为：Req02 按表头名将 `A.SKU -> B.SKU`、
+  `A.自定义 -> B.平台SKU`；默认 `Append`，真实 B 已有末行 696，
+  因此从 700 行写入；显式 `Replace` 从第 2 行覆盖并用 `.ClearContents()` 清理。
+- 主负责人已修复“选择/拖入 A 覆盖手动 profile”：
+  `_set_default_output(select_profile=False)` 默认不改方案，仅 B 路径选择/拖入传 `True`。
+  新增回归用例已证明手动“支线 02”在再选 A 后保持不变。
+- 默认 `Mainline` profile、主线多级表头识别、追加与对齐规则保持兼容。
+
+### 独立复跑结果
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_req02.ps1`
+  退出码 0：`Visible+Append` 2 行、`All+Append` 3 行、
+  `Visible+Replace` 2 行；两字段逐格一致，追加间隔与旧值保留、
+  替换清理、公式保留、原模板哈希均通过。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/verify-mapping/scripts/verify_mapping.ps1 ...`
+  退出码 0：主线 12/12 字段一致。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_append.ps1`
+  退出码 0：两种 RowMode、旧数据、3 行间隔、模板哈希和公式冲突保护通过。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_alignment.ps1`
+  退出码 0：12 个写入单元格对齐正确，564 个表头单元格与
+  1022 个写入区外单元格未变。
+- `py -m unittest tests.test_path_settings tests.test_ui_layout tests.verify_path_settings -v`
+  退出码 0：24/24 通过。
+- `py -m unittest tests.verify_ui_integration -v`
+  退出码 0：5/5 通过；真实 Req02 GUI 用例确认 306 行、
+  `existingLastRow=696`、`writeStartRow=700`。
+- `git diff --check` 无空白错误；`excel_mapper.ps1`、
+  `tests/make_req02_fixture.ps1`、`tests/verify_req02.ps1` 均以 UTF-8 BOM 开头。
+
+### 非阻断文档项
+
+- `PROJECT.md` 第 4 条仍表述为“需求文档将平台SKU列标写成 A”，
+  应改为“原文曾写 A，现已更正为 B”，避免与用户最新文档状态冲突。
+- 未跟踪的 `docs/REVIEW_REQ02.md` 是实现前审查快照，仍有
+  “平台SKU 暂不实现”、“现有映射器无法落到 B”等已过期结论。
+  若准备入库，需在文首明确标注“历史快照，最终结论以 HANDOFF T06 为准”，
+  或不将该底稿纳入最终提交。
+
+### 交接
+
+- T06 转为“已完成”；Codex 可解除 T07 审查依赖并进入最终整合。
+- 本轮只更新 `HANDOFF.md`与 T06 任务状态，未改任何实现或测试文件。
+
+## 2026-09-11 Codex 修复与最终回归
+
+- 最新字段契约已落实：`A.SKU -> B.SKU`、`A.自定义 -> B.平台SKU`，两端均按表头名定位。
+- C-01 按用户此前明确答复生效：Req02 默认 `Append`；空目标从 R2 写入，有既有数据时从末行 + 4 追加。
+  显式 `-WriteMode Replace` 保留为可选模式，使用 `.ClearContents()` 清理输出副本，不修改原始 B。
+- 修复 T06 的 profile 覆盖问题：只有 B 路径变化时才自动判断方案；选择或拖入 A 不再覆盖手动方案。
+- 支线合成验证：Visible/Append 2 行、All/Append 3 行、Visible/Replace 2 行全部通过；
+  覆盖既有行保留、3 行间隔、替换清理、公式/表头保留和原模板哈希不变。
+- 主线回归：必跑映射 12/12、`verify_append.ps1`、`verify_alignment.ps1` 均通过。
+- Python/UI：路径与 UI 单元测试 24/24 通过；真实 GUI 集成 5/5 通过。
+  新增 Req02 GUI 端到端用例确认真实 B 的 `existingLastRow=696`、`writeStartRow=700`、写入 306 行。
+- PowerShell 语法与 `git diff --check` 通过；新增三个 `.ps1` 文件均保留 UTF-8 BOM。
+- T05/T10 已完成，等待 Claude 对本次修复作 T06 最终复核。
+
+## 2026-09-11 Codex 最终整合
+
+- Claude 已完成 T06 最终复核，无剩余实现阻断项；T07 解除并完成。
+- 最终 Req02 合成验证增加“空源 + Replace”边界，共 4 组通过；空源不会清空输出副本的既有数据。
+- 最终主线复跑：映射 12/12、追加验证、对齐验证全部通过。
+- 最终应用复跑：Python/UI 24/24、GUI 集成 5/5；真实 Req02 仍为 306 行、R700 起写。
+- `build.ps1` 最终重建成功；冻结版启动通过，归档含 `windnd`、`windnd.windnd`，
+  `_internal/excel_mapper.ps1` 存在。构建日志仍有已知的未使用 `win32ui.pyd` 对 `mfc140u.dll` 的警告，
+  不影响当前冻结版启动和已覆盖流程。
+- 修订后的 `项目需求文档02.docx` 已重新抽取核对，明确为
+  `A.A列 SKU -> B.A列 SKU`、`A.D列 自定义 -> B.B列 平台SKU`。
+- `docs/REVIEW_REQ02.md` 已标记为历史审查快照，最终契约与验证以本交接记录文末为准。

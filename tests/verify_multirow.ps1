@@ -41,7 +41,7 @@ function ConvertTo-ColumnNumber([string]$Letter) {
     return $n
 }
 
-if (-not $Target) { $Target = Join-Path (Split-Path $PSScriptRoot -Parent) '文件\B模板01.xlsx' }
+if (-not $Target) { $Target = Join-Path (Split-Path $PSScriptRoot -Parent) '文件\01\B模板01.xlsx' }
 
 $repo = Split-Path $PSScriptRoot -Parent
 $mapper = Join-Path $repo 'excel_mapper.ps1'

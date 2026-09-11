@@ -4,14 +4,14 @@
 |---|---|---|---|---|
 | T01 | Codex | 已完成 | `PROJECT.md`、`TASKS.md`、`HANDOFF.md` | 无 |
 | T02 | Claude | 已完成 | 需求/验收审查；未经协调不改实现文件 | 先读 T01 文档 |
-| T03 | Codex | 已完成 | `excel_mapper.ps1`、映射配置/参数 | 写入语义受 **C-01** 约束，裁决后可能返工 |
+| T03 | Codex | 已完成 | `excel_mapper.ps1`、映射配置/参数 | C-01 已按默认追加生效 |
 | T04 | Codex | 已完成 | `app.py`、`README.md`、`build.ps1`、`requirements.txt`、`requirements-build.txt` | T03 接口稳定 |
-| T05 | Codex | 进行中 | `tests/`（新增支线验证与回归路径） | T03/T04 |
-| T06 | Claude | 进行中 | 审查结果与 `HANDOFF.md` | T03-T05 |
-| T07 | Codex | **阻塞** | 整合、回归验证、提交 | T06 通过 **且 C-01 已裁决** |
-| T08 | Claude | 进行中 | `文件/` 素材基线入库、`.gitignore` | 用户重组已完成 |
+| T05 | Codex | 已完成 | `tests/`（新增支线验证与回归路径） | T03/T04 |
+| T06 | Claude | 已完成 | 审查结果与 `HANDOFF.md` | T03-T05；最终审查通过 |
+| T07 | Codex | 已完成 | 整合、回归验证、提交 | T06 最终审查通过 |
+| T08 | Claude | 已完成 | `文件/` 素材基线入库、`.gitignore` | 用户重组已完成 |
 | T09 | Claude | 已完成 | `docs/WORKFLOW.md`（流程补齐） | 无 |
-| T10 | Codex | 待开始 | `AGENTS.md`、`README.md` 文档同步 | T07 |
+| T10 | Codex | 已完成 | `AGENTS.md`、`README.md` 文档同步 | T07 |
 
 ## 接口约定
 
@@ -19,9 +19,8 @@
 - 映射摘要沿用现有 JSON 输出，新增字段需向后兼容。
 - 目标表头缺失或歧义时，必须返回可读错误，禁止静默写入猜测列。
 - 支线 profile 固定按表头定位 `SKU`、`平台SKU`；主线 profile 行为不变。
-- **写入语义（从第 2 行替换 vs 追加到末尾）状态为 `未决`，见 `docs/WORKFLOW.md` §1 C-01。**
-  该条在裁决前不得作为验收依据；当前实现为「替换 + 清除至 696 行」，
-  对真实 `文件/02/B模板.xls` 会抹掉原有 687/688 条 SKU。
+- **写入语义：默认 `Append`，显式 `-WriteMode Replace` 才覆盖。** 空目标从第 2 行写入；
+  有既有记录时从末行 + 4 开始，真实 `文件/02/B模板.xls` 对应 R700。
 
 ## 治理规则
 

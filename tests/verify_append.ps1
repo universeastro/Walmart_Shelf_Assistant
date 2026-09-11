@@ -2,7 +2,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 $work = Join-Path $env:TEMP ('wsa_append_' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $work)
-$template = Join-Path $repo '文件\B模板01.xlsx'
+$template = Join-Path $repo '文件\01\B模板01.xlsx'
 $populated = Join-Path $work 'populated.xlsx'
 $conflict = Join-Path $work 'conflict.xlsx'
 $excel = $null

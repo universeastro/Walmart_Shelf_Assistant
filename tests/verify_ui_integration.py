@@ -11,6 +11,7 @@
   2. 校验不通过时提前返回，**不能留下一个一直转的进度条**
   3. 运行中重复点击被忽略（否则会起第二个 Excel 进程抢同一个输出文件）
   4. 状态栏随路径编辑刷新
+  5. 支线真实文件经 GUI 自动选中 Req02，并按默认追加从 R700 写入
 
 用法：py -m unittest tests.verify_ui_integration -v
 需可见桌面会话与已安装 Excel；端到端那条约 20-40 秒。
@@ -39,7 +40,9 @@ sys.path.insert(0, str(REPO))
 from app import ShelfAssistant  # noqa: E402
 
 SAMPLE = REPO / "tests" / "fixtures" / "A_sample.xls"
-TEMPLATE = REPO / "文件" / "B模板01.xlsx"
+TEMPLATE = REPO / "文件" / "01" / "B模板01.xlsx"
+REQ02_SAMPLE = REPO / "文件" / "02" / "A模板02.xls"
+REQ02_TEMPLATE = REPO / "文件" / "02" / "B模板.xls"
 
 
 class UIIntegrationTests(unittest.TestCase):
@@ -138,6 +141,27 @@ class UIIntegrationTests(unittest.TestCase):
         summary = self.window.summary_var.get()
         self.assertIn("1", summary, f"摘要未反映 1 行数据: {summary!r}")
         self.assertIn("完成", self.window.status_var.get())
+
+    def test_req02_end_to_end_uses_append_profile(self):
+        if not REQ02_SAMPLE.is_file() or not REQ02_TEMPLATE.is_file():
+            self.skipTest(f"缺少支线真实文件: {REQ02_SAMPLE} / {REQ02_TEMPLATE}")
+        output = Path(self.temporary.name) / "req02-out.xlsx"
+        self.window._handle_drop_paths([str(REQ02_TEMPLATE)], self.window.target_var, "target")
+        self.window._handle_drop_paths([str(REQ02_SAMPLE)], self.window.source_var, "source")
+        self.window.output_var.set(str(output))
+        self.assertEqual(self.window.profile_var.get(), "支线 02")
+
+        with patch("app.CompletionDialog"):
+            self.window.run_mapping()
+            outcome = self._mainloop_until(lambda: not self.window.running, 180)
+            self.assertFalse(outcome.get("timeout", False), "支线映射未在 180 秒内结束")
+
+        self.assertTrue(output.is_file(), f"未生成支线输出文件: {output}")
+        self.assertIn("306", self.window.summary_var.get())
+        log_text = self.window.log.get("1.0", "end")
+        self.assertIn("映射方案：支线 02", log_text)
+        self.assertIn("本批次从第 700 行开始写入", log_text)
+        self.assertIn("已有数据末行：696", log_text)
 
     # 2 -------------------------------------------------------------------
     def test_validation_failure_leaves_no_spinner(self):
