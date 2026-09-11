@@ -40,6 +40,15 @@ class PathSettingsTests(unittest.TestCase):
         target.touch()
         return {"source": str(source), "target": str(target), "output": str(Path(self.temporary.name) / "new output.xlsx")}
 
+    def saved_profile(self, profile="Mainline"):
+        data = json.loads(self.settings.read_text(encoding="utf-8"))
+        self.assertEqual(data["version"], 2)
+        return data["profiles"][profile]
+
+    def switch(self, window, label):
+        window.profile_var.set(label)
+        window._on_profile_selected()
+
     def test_close_and_restart_restores_existing_inputs_and_new_output(self):
         window = self.open_app()
         paths = self.input_paths()
@@ -56,7 +65,7 @@ class PathSettingsTests(unittest.TestCase):
         window.source_var.set("new.xls")
         window.output_var.set("")
         window.destroy()
-        self.assertEqual(json.loads(self.settings.read_text(encoding="utf-8")), {"source": "new.xls", "target": paths["target"], "output": ""})
+        self.assertEqual(self.saved_profile(), {"source": "new.xls", "target": paths["target"], "output": ""})
 
     def test_moved_input_is_cleared_without_changing_other_paths(self):
         for key in ("source", "target"):
@@ -69,7 +78,7 @@ class PathSettingsTests(unittest.TestCase):
                 expected = dict(paths, **{key: ""})
                 self.assertEqual({name: var.get() for name, var in window._path_vars.items()}, expected)
                 window.destroy()
-                self.assertEqual(json.loads(self.settings.read_text(encoding="utf-8")), expected)
+                self.assertEqual(self.saved_profile(), expected)
 
     def test_directory_is_not_restored_as_input(self):
         self.seed(json.dumps({"source": self.temporary.name}))
@@ -97,6 +106,55 @@ class PathSettingsTests(unittest.TestCase):
         self.assertEqual(list(self.settings.parent.glob("*.tmp")), [])
         window._save_paths()
         self.assertFalse(window._paths_dirty)
+
+    def test_profiles_keep_independent_paths_and_restore_last_page(self):
+        mainline = self.input_paths()
+        req_source = Path(self.temporary.name) / "req-source.xls"
+        req_target = Path(self.temporary.name) / "req-target.xls"
+        req_source.touch()
+        req_target.touch()
+        req02 = {
+            "source": str(req_source),
+            "target": str(req_target),
+            "output": str(Path(self.temporary.name) / "req-output.xlsx"),
+        }
+
+        window = self.open_app()
+        for key, value in mainline.items():
+            window._path_vars[key].set(value)
+        self.switch(window, "支线 02")
+        for key, value in req02.items():
+            window._path_vars[key].set(value)
+        self.switch(window, "主线 01")
+        self.assertEqual({key: var.get() for key, var in window._path_vars.items()}, mainline)
+        self.switch(window, "支线 02")
+        self.assertEqual({key: var.get() for key, var in window._path_vars.items()}, req02)
+        window.destroy()
+
+        restored = self.open_app()
+        self.assertEqual(restored.profile_var.get(), "支线 02")
+        self.assertEqual({key: var.get() for key, var in restored._path_vars.items()}, req02)
+        self.switch(restored, "主线 01")
+        self.assertEqual({key: var.get() for key, var in restored._path_vars.items()}, mainline)
+
+    def test_legacy_req02_paths_migrate_to_req02_page(self):
+        source = Path(self.temporary.name) / "source.xls"
+        target = Path(self.temporary.name) / "02" / "B模板.xls"
+        source.touch()
+        target.parent.mkdir()
+        target.touch()
+        legacy = {"source": str(source), "target": str(target), "output": "req-output.xlsx"}
+        self.seed(json.dumps(legacy))
+
+        window = self.open_app()
+        self.assertEqual(window.profile_var.get(), "支线 02")
+        self.assertEqual({key: var.get() for key, var in window._path_vars.items()}, legacy)
+        self.switch(window, "主线 01")
+        self.assertEqual({key: var.get() for key, var in window._path_vars.items()}, dict.fromkeys(("source", "target", "output"), ""))
+        window.destroy()
+        data = json.loads(self.settings.read_text(encoding="utf-8"))
+        self.assertEqual(data["last_profile"], "Mainline")
+        self.assertEqual(data["profiles"]["Req02"], legacy)
 
 
 if __name__ == "__main__":

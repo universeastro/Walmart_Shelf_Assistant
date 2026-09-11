@@ -12,6 +12,9 @@
 | T08 | Claude | 已完成 | `文件/` 素材基线入库、`.gitignore` | 用户重组已完成 |
 | T09 | Claude | 已完成 | `docs/WORKFLOW.md`（流程补齐） | 无 |
 | T10 | Codex | 已完成 | `AGENTS.md`、`README.md` 文档同步 | T07 |
+| T11 | Codex | 已完成 | `app.py`、`tests/test_path_settings.py`、`tests/test_ui_layout.py`、`tests/verify_path_settings.py`、`tests/verify_ui_integration.py`、`README.md` | 双页面与分方案路径记忆 |
+| T12 | Claude | 已完成 | 需求、边界、回归与文档审查；审查结论追加 `HANDOFF.md` | T11 |
+| T13 | Codex | 进行中 | 最终整合、验证与提交 | T12 通过 |
 
 ## 接口约定
 

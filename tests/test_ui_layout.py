@@ -18,27 +18,29 @@ class UILayoutTests(unittest.TestCase):
         self.window.update()
 
     def test_controls_fit_at_supported_sizes(self):
-        for size in ("720x620", "880x680", "1100x800"):
-            with self.subTest(size=size):
-                self.window.geometry(size)
-                self.window.update()
-                controls = self.window.file_controls + self.window.row_mode_buttons + [
-                    self.window.run_button, self.window.status_label, self.window.log]
-                for control in controls:
-                    self.assertTrue(control.winfo_viewable())
-                    left = control.winfo_rootx() - self.window.winfo_rootx()
-                    top = control.winfo_rooty() - self.window.winfo_rooty()
-                    self.assertGreaterEqual(left, 0)
-                    self.assertGreaterEqual(top, 0)
-                    self.assertLessEqual(left + control.winfo_width(), self.window.winfo_width())
-                    self.assertLessEqual(top + control.winfo_height(), self.window.winfo_height())
-                self.assertGreaterEqual(self.window.log.winfo_height(), 60)
-                for button in self.window.row_mode_buttons:
-                    self.assertGreaterEqual(button.winfo_width(), button.winfo_reqwidth())
+        for profile in ("主线 01", "支线 02"):
+            self.window.profile_var.set(profile)
+            for size in ("720x620", "880x680", "1100x800"):
+                with self.subTest(profile=profile, size=size):
+                    self.window.geometry(size)
+                    self.window.update()
+                    controls = self.window.file_controls + self.window.row_mode_buttons + [
+                        self.window.run_button, self.window.status_label, self.window.log]
+                    for control in controls:
+                        self.assertTrue(control.winfo_viewable())
+                        left = control.winfo_rootx() - self.window.winfo_rootx()
+                        top = control.winfo_rooty() - self.window.winfo_rooty()
+                        self.assertGreaterEqual(left, 0)
+                        self.assertGreaterEqual(top, 0)
+                        self.assertLessEqual(left + control.winfo_width(), self.window.winfo_width())
+                        self.assertLessEqual(top + control.winfo_height(), self.window.winfo_height())
+                    self.assertGreaterEqual(self.window.log.winfo_height(), 60)
+                    for button in self.window.row_mode_buttons:
+                        self.assertGreaterEqual(button.winfo_width(), button.winfo_reqwidth())
 
     def test_path_entries_use_one_font_and_color(self):
         from tkinter import font as tkfont
-        for entry in self.window.file_controls[::2]:
+        for entry in self.window.all_file_controls[::2]:
             self.assertEqual(str(entry.cget("foreground")), "#252b32")
             actual = tkfont.Font(root=self.window, font=entry.cget("font")).actual()
             self.assertEqual(actual["family"].lower(), "microsoft yahei ui")
@@ -54,13 +56,13 @@ class UILayoutTests(unittest.TestCase):
             self.window.run_mapping()
             worker.return_value.start.assert_called_once()
         self.assertTrue(self.window.running)
-        for control in self.window.file_controls + self.window.row_mode_buttons + [self.window.run_button, self.window.profile_combo]:
+        for control in self.window.all_file_controls + self.window.row_mode_buttons + [self.window.run_button, self.window.profile_combo]:
             self.assertIn("disabled", control.state())
         with patch("app.messagebox.showerror"):
             self.window._finish({"success": False, "message": "test failure"}, 1)
         self.assertFalse(self.window.running)
         self.assertEqual(float(self.window.progress["value"]), 0)
-        for control in self.window.file_controls + self.window.row_mode_buttons + [self.window.run_button]:
+        for control in self.window.all_file_controls + self.window.row_mode_buttons + [self.window.run_button]:
             self.assertNotIn("disabled", control.state())
         self.assertIn("readonly", self.window.profile_combo.state())
 
@@ -94,8 +96,22 @@ class UILayoutTests(unittest.TestCase):
             warning.assert_called_once()
             open_folder.assert_not_called()
 
+    def test_output_action_is_scoped_to_profile_page(self):
+        output = Path(self.temp.name) / "main-result.xlsx"
+        output.touch()
+        with patch("app.CompletionDialog"):
+            self.window._finish({"success": True, "output": str(output)}, 0)
+            self.window.completion_dialog = None
+        self.assertEqual(self.window.last_output, output.resolve())
+        self.window.profile_var.set("支线 02")
+        self.assertIsNone(self.window.last_output)
+        self.assertIn("disabled", self.window.open_output_button.state())
+        self.window.profile_var.set("主线 01")
+        self.assertEqual(self.window.last_output, output.resolve())
+        self.assertNotIn("disabled", self.window.open_output_button.state())
+
     def test_path_entries_have_no_hover_popup_binding(self):
-        for entry in self.window.file_controls[::2]:
+        for entry in self.window.all_file_controls[::2]:
             self.assertEqual(entry.bind("<Enter>"), "")
         self.assertFalse(hasattr(self.window, "_schedule_path_tip"))
 
@@ -111,11 +127,12 @@ class UILayoutTests(unittest.TestCase):
         target = Path(self.temp.name) / "02" / "B模板.xls"
         target.parent.mkdir()
         target.touch()
-        with patch("app.messagebox.showwarning") as warning:
+        with patch("app.messagebox.showwarning") as warning, patch("app.messagebox.askyesno", return_value=True) as confirm:
             self.window._handle_drop_paths([str(target)], self.window.target_var, "target")
             self.assertEqual(self.window.target_var.get(), str(target))
             self.assertEqual(self.window.profile_var.get(), "支线 02")
             self.window._handle_drop_paths([str(target.with_suffix(".txt"))], self.window.target_var, "target")
+        confirm.assert_called_once()
         warning.assert_called_once()
 
     def test_drop_is_ignored_while_running(self):
@@ -133,6 +150,36 @@ class UILayoutTests(unittest.TestCase):
         with patch("app.filedialog.askopenfilename", return_value=str(source)):
             self.window._choose_source()
         self.assertEqual(self.window.profile_var.get(), "支线 02")
+
+    def test_profile_pages_keep_independent_paths_and_active_aliases(self):
+        self.window.source_var.set("main.xls")
+        main_controls = self.window.file_controls
+        self.window.profile_var.set("支线 02")
+        self.assertEqual(self.window.source_var.get(), "")
+        self.assertIs(self.window.source_var, self.window._profile_path_vars["支线 02"]["source"])
+        self.assertIsNot(self.window.file_controls, main_controls)
+        self.window.source_var.set("req.xls")
+        self.window.profile_var.set("主线 01")
+        self.assertEqual(self.window.source_var.get(), "main.xls")
+        self.window.profile_var.set("支线 02")
+        self.assertEqual(self.window.source_var.get(), "req.xls")
+
+    def test_rejecting_target_page_switch_keeps_current_page(self):
+        target = Path(self.temp.name) / "02" / "B模板.xls"
+        target.parent.mkdir()
+        target.touch()
+        with patch("app.messagebox.askyesno", return_value=False):
+            self.window._handle_drop_paths([str(target)], self.window.target_var, "target")
+        self.assertEqual(self.window.profile_var.get(), "主线 01")
+        self.assertEqual(self.window.target_var.get(), str(target))
+        self.window.profile_var.set("支线 02")
+        self.assertEqual(self.window.target_var.get(), "")
+
+    def test_running_blocks_programmatic_page_switch(self):
+        self.window.running = True
+        self.window.profile_var.set("支线 02")
+        self.assertEqual(self.window.profile_var.get(), "主线 01")
+        self.assertEqual(self.window._active_profile_label, "主线 01")
 
     def test_worker_passes_selected_profile(self):
         completed = SimpleNamespace(stdout='{"success":true}', stderr="", returncode=0)

@@ -146,7 +146,8 @@ class UIIntegrationTests(unittest.TestCase):
         if not REQ02_SAMPLE.is_file() or not REQ02_TEMPLATE.is_file():
             self.skipTest(f"缺少支线真实文件: {REQ02_SAMPLE} / {REQ02_TEMPLATE}")
         output = Path(self.temporary.name) / "req02-out.xlsx"
-        self.window._handle_drop_paths([str(REQ02_TEMPLATE)], self.window.target_var, "target")
+        with patch("app.messagebox.askyesno", return_value=True):
+            self.window._handle_drop_paths([str(REQ02_TEMPLATE)], self.window.target_var, "target")
         self.window._handle_drop_paths([str(REQ02_SAMPLE)], self.window.source_var, "source")
         self.window.output_var.set(str(output))
         self.assertEqual(self.window.profile_var.get(), "支线 02")

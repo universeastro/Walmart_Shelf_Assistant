@@ -21,6 +21,8 @@ APP_DIR = Path(__file__).resolve().parent
 MAPPER = APP_DIR / "excel_mapper.ps1"
 SETTINGS_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".config") / "WalmartShelfAssistant" / "settings.json"
 PROFILE_LABELS = {"主线 01": "Mainline", "支线 02": "Req02"}
+PROFILE_KEYS = {value: label for label, value in PROFILE_LABELS.items()}
+PATH_KEYS = ("source", "target", "output")
 
 
 class CompletionDialog(tk.Toplevel):
@@ -90,52 +92,91 @@ class ShelfAssistant(tk.Tk):
         self.geometry("880x680")
         self.minsize(720, 620)
         self.configure(bg="#f6f7f9")
-        self.source_var = tk.StringVar()
-        self.target_var = tk.StringVar()
-        self.output_var = tk.StringVar()
         self.profile_var = tk.StringVar(value="主线 01")
+        self._profile_path_vars = {
+            label: {key: tk.StringVar() for key in PATH_KEYS}
+            for label in PROFILE_LABELS
+        }
+        self._active_profile_label = "主线 01"
+        self._profile_change_guard = False
+        self._activate_profile_vars(self._active_profile_label)
         self.row_mode_var = tk.StringVar(value="Visible")
         self.status_var = tk.StringVar(value="请选择文件 A 和文件 B")
         self.running = False
         self.completion_dialog = None
         self.last_output = None
+        self._profile_last_outputs = {label: None for label in PROFILE_LABELS}
         self.summary_var = tk.StringVar(value="尚无处理结果")
         self.settings_path = Path(settings_path) if settings_path is not None else SETTINGS_PATH
         self._paths_dirty = False
-        self._path_vars = {
-            "source": self.source_var,
-            "target": self.target_var,
-            "output": self.output_var,
-        }
         self._load_paths()
-        self._select_profile_for_target(self.target_var.get())
-        for variable in self._path_vars.values():
-            variable.trace_add("write", self._mark_paths_dirty)
+        self._activate_profile_vars(self.profile_var.get())
+        for label, path_vars in self._profile_path_vars.items():
+            for variable in path_vars.values():
+                variable.trace_add("write", lambda *_args, profile_label=label: self._mark_paths_dirty(profile_label))
         self._build_ui()
+        self.profile_var.trace_add("write", self._on_profile_var_changed)
         self._refresh_ready_status()
+
+    def _activate_profile_vars(self, label):
+        if label not in self._profile_path_vars:
+            label = "主线 01"
+        self._active_profile_label = label
+        if self.profile_var.get() != label:
+            self.profile_var.set(label)
+        self._path_vars = self._profile_path_vars[label]
+        self.source_var = self._path_vars["source"]
+        self.target_var = self._path_vars["target"]
+        self.output_var = self._path_vars["output"]
+
+    def _validated_path_value(self, key, value):
+        if key in ("source", "target") and value:
+            try:
+                exists = Path(value.strip()).is_file()
+            except (OSError, ValueError):
+                exists = False
+            if not exists:
+                self._paths_dirty = True
+                return ""
+        return value
 
     def _load_paths(self):
         try:
             settings = json.loads(self.settings_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
-        if isinstance(settings, dict):
-            for key, variable in self._path_vars.items():
-                value = settings.get(key)
-                if isinstance(value, str):
-                    if key in ("source", "target") and value:
-                        try:
-                            exists = Path(value.strip()).is_file()
-                        except (OSError, ValueError):
-                            exists = False
-                        if not exists:
-                            value = ""
-                            self._paths_dirty = True
-                    variable.set(value)
+        if not isinstance(settings, dict):
+            return
 
-    def _mark_paths_dirty(self, *_):
+        profiles = settings.get("profiles")
+        if isinstance(profiles, dict):
+            for profile_key, label in PROFILE_KEYS.items():
+                values = profiles.get(profile_key)
+                if not isinstance(values, dict):
+                    continue
+                for key, variable in self._profile_path_vars[label].items():
+                    value = values.get(key)
+                    if isinstance(value, str):
+                        variable.set(self._validated_path_value(key, value))
+            last_profile = settings.get("last_profile")
+            if isinstance(last_profile, str) and last_profile in PROFILE_KEYS:
+                self.profile_var.set(PROFILE_KEYS[last_profile])
+            return
+
+        legacy_target = settings.get("target")
+        legacy_label = self._profile_label_for_target(legacy_target) if isinstance(legacy_target, str) else None
+        legacy_label = legacy_label or "主线 01"
+        for key, variable in self._profile_path_vars[legacy_label].items():
+            value = settings.get(key)
+            if isinstance(value, str):
+                variable.set(self._validated_path_value(key, value))
+        if any(key in settings for key in PATH_KEYS):
+            self.profile_var.set(legacy_label)
+            self._paths_dirty = True
+
+    def _mark_paths_dirty(self, profile_label=None):
         self._paths_dirty = True
-        if hasattr(self, "status_label") and not self.running:
+        if (profile_label is None or profile_label == self._active_profile_label) and hasattr(self, "status_label") and not self.running:
             self._refresh_ready_status()
 
     def _refresh_ready_status(self):
@@ -149,7 +190,17 @@ class ShelfAssistant(tk.Tk):
         temporary = None
         try:
             self.settings_path.parent.mkdir(parents=True, exist_ok=True)
-            settings = {key: variable.get() for key, variable in self._path_vars.items()}
+            settings = {
+                "version": 2,
+                "last_profile": PROFILE_LABELS[self._active_profile_label],
+                "profiles": {
+                    profile_key: {
+                        key: variable.get()
+                        for key, variable in self._profile_path_vars[label].items()
+                    }
+                    for label, profile_key in PROFILE_LABELS.items()
+                },
+            }
             # Replace only after the complete JSON has been written successfully.
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.settings_path.parent,
                                              suffix=".tmp", delete=False) as stream:
@@ -206,16 +257,38 @@ class ShelfAssistant(tk.Tk):
         self.profile_combo = ttk.Combobox(header, textvariable=self.profile_var,
                                           values=tuple(PROFILE_LABELS), state="readonly", width=12)
         self.profile_combo.pack(side="right", padx=(0, 18), pady=4)
+        self.profile_combo.bind("<<ComboboxSelected>>", self._on_profile_selected)
         ttk.Label(header, text="方案", style="Hint.TLabel").pack(side="right", padx=(0, 6), pady=6)
         ttk.Separator(outer).pack(fill="x", pady=(0, 18))
-        ttk.Label(outer, text="文件", style="Section.TLabel").pack(anchor="w", pady=(0, 4))
-        panel = ttk.Frame(outer)
-        panel.pack(fill="x")
-        panel.columnconfigure(1, weight=1)
+        self.pages = ttk.Frame(outer)
+        self.pages.pack(fill="x")
+        self.pages.columnconfigure(0, weight=1)
+        self._profile_pages = {}
+        self._profile_file_controls = {}
+        for label in PROFILE_LABELS:
+            page = ttk.Frame(self.pages)
+            page.grid(row=0, column=0, sticky="nsew")
+            page.columnconfigure(0, weight=1)
+            ttk.Label(page, text=f"{label} 文件", style="Section.TLabel").grid(
+                row=0, column=0, sticky="w", pady=(0, 4)
+            )
+            panel = ttk.Frame(page)
+            panel.grid(row=1, column=0, sticky="ew")
+            panel.columnconfigure(1, weight=1)
+            controls = []
+            path_vars = self._profile_path_vars[label]
+            self._file_row(panel, 0, "文件 A（源数据）", path_vars["source"], self._choose_source, "source", label, controls)
+            self._file_row(panel, 1, "文件 B（目标文件）", path_vars["target"], self._choose_target, "target", label, controls)
+            self._file_row(panel, 2, "输出文件", path_vars["output"], self._choose_output, "output", label, controls)
+            self._profile_pages[label] = page
+            self._profile_file_controls[label] = controls
+        self.all_file_controls = [
+            control
+            for controls in self._profile_file_controls.values()
+            for control in controls
+        ]
         self.file_controls = []
-        self._file_row(panel, 0, "文件 A（源数据）", self.source_var, self._choose_source, "source")
-        self._file_row(panel, 1, "文件 B（目标文件）", self.target_var, self._choose_target, "target")
-        self._file_row(panel, 2, "输出文件", self.output_var, self._choose_output, "output")
+        self._show_profile_page(self._active_profile_label)
 
         ttk.Label(outer, text="导出范围", style="Section.TLabel").pack(anchor="w", pady=(18, 4))
         options = ttk.Frame(outer)
@@ -255,7 +328,7 @@ class ShelfAssistant(tk.Tk):
         scrollbar.pack(side="right", fill="y")
         self.log.pack(side="left", fill="both", expand=True)
 
-    def _file_row(self, parent, row, label, variable, command, kind):
+    def _file_row(self, parent, row, label, variable, command, kind, profile_label, controls):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 18), pady=6)
         entry = ttk.Entry(parent, textvariable=variable, width=12,
                           font=("Microsoft YaHei UI", 10), foreground="#252b32")
@@ -267,12 +340,60 @@ class ShelfAssistant(tk.Tk):
             try:
                 windnd.hook_dropfiles(
                     entry,
-                    func=lambda paths, v=variable, k=kind: self.after(0, self._handle_drop_paths, paths, v, k),
+                    func=lambda paths, v=variable, k=kind, p=profile_label: self.after(
+                        0, self._handle_drop_paths, paths, v, k, p
+                    ),
                     force_unicode=True,
                 )
-            except (OSError, RuntimeError):
+            # windnd uses a process-wide hook counter and raises TypeError
+            # (from an invalid string raise) after its internal limit. Drag
+            # and drop is optional, so a failed hook must not block the UI.
+            except (OSError, RuntimeError, TypeError):
                 pass
-        self.file_controls.extend((entry, button))
+        controls.extend((entry, button))
+
+    def _show_profile_page(self, label):
+        if self.running and label != self._active_profile_label:
+            return False
+        self._activate_profile_vars(label)
+        if hasattr(self, "_profile_pages"):
+            self._profile_pages[label].tkraise()
+            self.file_controls = self._profile_file_controls[label]
+        if hasattr(self, "open_output_button"):
+            self.last_output = self._profile_last_outputs[label]
+            state = "normal" if self.last_output is not None else "disabled"
+            self.open_output_button.configure(state=state)
+        if hasattr(self, "status_label") and not self.running:
+            self._refresh_ready_status()
+        return True
+
+    def _on_profile_selected(self, _event=None):
+        self._on_profile_var_changed()
+
+    def _on_profile_var_changed(self, *_):
+        if self._profile_change_guard:
+            return
+        requested = self.profile_var.get()
+        previous = self._active_profile_label
+        if requested not in PROFILE_LABELS or (self.running and requested != previous):
+            self._profile_change_guard = True
+            try:
+                self.profile_var.set(previous)
+            finally:
+                self._profile_change_guard = False
+            return
+        if self._show_profile_page(requested) and requested != previous:
+            self._paths_dirty = True
+
+    def _profile_label_for_target(self, target):
+        if not isinstance(target, str):
+            return None
+        target_norm = target.strip().replace("/", "\\").lower()
+        if target_norm.endswith("\\02\\b模板.xls") or "\\02\\b模板.xls" in target_norm:
+            return "支线 02"
+        if "\\01\\" in target_norm and target_norm.rsplit("\\", 1)[-1].startswith("b模板"):
+            return "主线 01"
+        return None
 
     def _parse_drop_paths(self, data):
         if isinstance(data, (list, tuple)):
@@ -282,10 +403,10 @@ class ShelfAssistant(tk.Tk):
         except (tk.TclError, TypeError, ValueError):
             return []
 
-    def _handle_drop(self, event, variable, kind):
-        return self._handle_drop_paths(getattr(event, "data", ""), variable, kind)
+    def _handle_drop(self, event, variable, kind, profile_label=None):
+        return self._handle_drop_paths(getattr(event, "data", ""), variable, kind, profile_label)
 
-    def _handle_drop_paths(self, data, variable, kind):
+    def _handle_drop_paths(self, data, variable, kind, profile_label=None):
         if self.running:
             return "break"
         paths = self._parse_drop_paths(data)
@@ -299,9 +420,13 @@ class ShelfAssistant(tk.Tk):
         if kind != "output" and not path.is_file():
             messagebox.showwarning("文件不存在", "拖入的 Excel 文件不存在。", parent=self)
             return "break"
+        profile_label = profile_label or self._active_profile_label
+        if kind == "target":
+            profile_label = self._resolve_target_profile(path, profile_label)
+            variable = self._profile_path_vars[profile_label]["target"]
         variable.set(str(path))
         if kind in {"source", "target"}:
-            self._set_default_output(select_profile=(kind == "target"))
+            self._set_default_output(profile_label)
         return "break"
 
     def _browse_options(self, variable, save=False):
@@ -352,8 +477,9 @@ class ShelfAssistant(tk.Tk):
             **self._browse_options(self.target_var),
         )
         if path:
-            self.target_var.set(path)
-            self._set_default_output(select_profile=True)
+            profile_label = self._resolve_target_profile(Path(path), self._active_profile_label)
+            self._profile_path_vars[profile_label]["target"].set(path)
+            self._set_default_output(profile_label)
 
     def _choose_output(self):
         path = filedialog.asksaveasfilename(
@@ -365,20 +491,32 @@ class ShelfAssistant(tk.Tk):
         if path:
             self.output_var.set(path)
 
-    def _set_default_output(self, select_profile=False):
-        target = self.target_var.get().strip()
-        if target and not self.output_var.get().strip():
+    def _set_default_output(self, profile_label=None):
+        profile_label = profile_label or self._active_profile_label
+        path_vars = self._profile_path_vars[profile_label]
+        target = path_vars["target"].get().strip()
+        if target and not path_vars["output"].get().strip():
             target_path = Path(target)
-            self.output_var.set(str(target_path.with_name(target_path.stem + "_已填充.xlsx")))
-        if select_profile:
-            self._select_profile_for_target(target)
+            path_vars["output"].set(str(target_path.with_name(target_path.stem + "_已填充.xlsx")))
+
+    def _resolve_target_profile(self, path, current_label):
+        suggested = self._profile_label_for_target(str(path))
+        if suggested and suggested != current_label:
+            should_switch = messagebox.askyesno(
+                "切换方案",
+                f"该目标文件看起来属于“{suggested}”。是否切换到对应页面？",
+                parent=self,
+            )
+            if should_switch:
+                self._show_profile_page(suggested)
+                self._paths_dirty = True
+                return suggested
+        return current_label
 
     def _select_profile_for_target(self, target):
-        target_norm = target.strip().replace("/", "\\").lower()
-        if target_norm.endswith("\\02\\b模板.xls") or "\\02\\b模板.xls" in target_norm:
-            self.profile_var.set("支线 02")
-        elif target_norm:
-            self.profile_var.set("主线 01")
+        label = self._profile_label_for_target(target)
+        if label:
+            self._show_profile_page(label)
 
     def _write_log(self, text):
         self.log.configure(state="normal")
@@ -404,13 +542,14 @@ class ShelfAssistant(tk.Tk):
             return
         self.status_var.set("正在处理...")
         self.last_output = None
+        self._profile_last_outputs[self._active_profile_label] = None
         self.open_output_button.configure(state="disabled")
         self.summary_var.set("正在生成输出文件...")
         self.status_label.configure(style="Hint.TLabel")
         self.progress.start(12)
         self.running = True
         self.run_button.configure(state="disabled", text="正在填充...")
-        for control in self.file_controls:
+        for control in self.all_file_controls:
             control.configure(state="disabled")
         self.profile_combo.configure(state="disabled")
         row_mode = self.row_mode_var.get()
@@ -461,7 +600,7 @@ class ShelfAssistant(tk.Tk):
         self.progress.stop()
         self.progress.configure(value=0)
         self.run_button.configure(state="normal", text="开始填充")
-        for control in self.file_controls:
+        for control in self.all_file_controls:
             control.configure(state="normal")
         self.profile_combo.configure(state="readonly")
         for button in self.row_mode_buttons:
@@ -471,6 +610,7 @@ class ShelfAssistant(tk.Tk):
             output_path = payload.get("output") or self.output_var.get()
             if output_path:
                 self.last_output = Path(output_path).resolve()
+                self._profile_last_outputs[self._active_profile_label] = self.last_output
                 self.open_output_button.configure(state="normal")
             self.status_var.set("处理完成")
             self.status_label.configure(style="Success.TLabel")
@@ -488,6 +628,7 @@ class ShelfAssistant(tk.Tk):
         else:
             self.summary_var.set("本次处理失败，详情见处理记录")
             self.last_output = None
+            self._profile_last_outputs[self._active_profile_label] = None
             self.open_output_button.configure(state="disabled")
             self.status_var.set("处理失败")
             self.status_label.configure(style="Error.TLabel")

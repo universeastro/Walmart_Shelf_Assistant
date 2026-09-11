@@ -55,6 +55,13 @@ class PathSettingsBoundaryTests(unittest.TestCase):
         self.settings.parent.mkdir(parents=True, exist_ok=True)
         self.settings.write_text(text, encoding="utf-8")
 
+    def profile_data(self, profile="Mainline"):
+        return json.loads(self.settings.read_text(encoding="utf-8"))["profiles"][profile]
+
+    def switch(self, window, label):
+        window.profile_var.set(label)
+        window._on_profile_selected()
+
     # 1 -------------------------------------------------------------------
     def test_nothing_changed_writes_no_file(self):
         """没动过任何路径就不该写盘——否则每次开一下程序都留下一个文件。"""
@@ -82,7 +89,7 @@ class PathSettingsBoundaryTests(unittest.TestCase):
 
         self.assertTrue(self.settings.exists(), "run_mapping 应当先保存路径再校验")
         data = json.loads(self.settings.read_text(encoding="utf-8"))
-        self.assertEqual(data["output"], "out.xlsx")
+        self.assertEqual(data["profiles"]["Mainline"]["output"], "out.xlsx")
 
     # 3 -------------------------------------------------------------------
     def test_chinese_paths_are_stored_as_readable_utf8(self):
@@ -98,7 +105,7 @@ class PathSettingsBoundaryTests(unittest.TestCase):
             raw,
             "中文应以 UTF-8 字节存储，而不是 \\uXXXX 转义",
         )
-        self.assertEqual(json.loads(raw.decode("utf-8"))["output"], chinese)
+        self.assertEqual(json.loads(raw.decode("utf-8"))["profiles"]["Mainline"]["output"], chinese)
 
     # 4 -------------------------------------------------------------------
     def test_successful_save_leaves_no_temp_file(self):
@@ -154,6 +161,42 @@ class PathSettingsBoundaryTests(unittest.TestCase):
         self.seed(json.dumps({"source": "", "target": "", "output": missing}))
         window = self.open_app()
         self.assertEqual(window.output_var.get(), missing)
+
+    def test_invalid_input_in_one_profile_does_not_clear_the_other(self):
+        req_source = Path(self.temporary.name) / "req-source.xls"
+        req_target = Path(self.temporary.name) / "req-target.xls"
+        req_source.touch()
+        req_target.touch()
+        settings = {
+            "version": 2,
+            "last_profile": "Req02",
+            "profiles": {
+                "Mainline": {"source": str(Path(self.temporary.name) / "missing.xls"), "target": "", "output": "main.xlsx"},
+                "Req02": {"source": str(req_source), "target": str(req_target), "output": "req.xlsx"},
+            },
+        }
+        self.seed(json.dumps(settings))
+        window = self.open_app()
+        self.assertEqual(window.profile_var.get(), "支线 02")
+        self.assertEqual(window.source_var.get(), str(req_source))
+        self.switch(window, "主线 01")
+        self.assertEqual(window.source_var.get(), "")
+        window.destroy()
+        self.assertEqual(self.profile_data("Req02")["source"], str(req_source))
+
+    def test_unknown_profile_data_is_ignored_without_overwriting_valid_profile(self):
+        target = Path(self.temporary.name) / "target.xlsx"
+        target.touch()
+        settings = {
+            "version": 2,
+            "last_profile": "Unknown",
+            "profiles": {"Mainline": {"source": 3, "target": str(target), "output": "main.xlsx"}, "Req02": "wrong"},
+        }
+        self.seed(json.dumps(settings))
+        window = self.open_app()
+        self.assertEqual(window.profile_var.get(), "主线 01")
+        self.assertEqual(window.source_var.get(), "")
+        self.assertEqual(window.target_var.get(), str(target))
 
 
 if __name__ == "__main__":
