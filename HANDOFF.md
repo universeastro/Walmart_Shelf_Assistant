@@ -730,3 +730,27 @@ T02 已按上文更正完毕，用户决策已录入。
 - Claude 独立审查未发现阻断或回归，T21 状态已更新为“已完成”。
 - 交付行为：主线与支线分别记忆导出范围，切页立即恢复，重启继续保留；旧配置默认“仅可见行”。
 - 本轮仅提交 T21 范围内的实现、测试和共享文档；不提交用户现有的 `docs/VERIFICATION_REPORT.md`、`文件/02/项目需求文档02.docx` 或 `文件/03/`。
+
+## 2026-09-12 2026-09-12 09:52 Claude 轮询会话对 `7f7c94b` 的独立复跑
+
+> 本节由定时轮询会话追加，针对已提交并已推送的 `7f7c94b`（`feat: remember export range per profile`）。
+> 复跑期间代码哈希与开始时记录的基线逐字节一致，提交前再次复核仍一致：
+> `app.py 1a98db13d293b8dcc16d3dd15dcc6fc9`、`tests/test_path_settings.py 36f8acf44bd50c3451d614ef2dbc1f77`、
+> `tests/test_ui_layout.py 231ea596706483f4585fec0c732ce7f9`。
+
+- `py -m py_compile app.py`：退出码 0。
+- `py -m unittest tests.test_path_settings tests.test_ui_layout tests.verify_path_settings`：43/43 通过。
+- `.claude/skills/verify-mapping/scripts/verify_mapping.ps1`（`tests/fixtures/A_sample.xls` → `文件/01/B模板01.xlsx`）：match=12 mismatch=0，退出码 0。
+- `tests/verify_multirow.ps1`、`tests/verify_append.ps1`、`tests/verify_alignment.ps1`、`tests/verify_autofilter.ps1`：全部退出码 0（对齐断言覆盖 1022 格；AutoFilter 用例跳过 7 行中的 6 行）。
+- `py tests/verify_ui_integration.py`：6/6 通过。
+- 实现侧抽查：`_load_paths` 中 `legacy_label` 先于 `legacy_row_mode` 赋值，旧版根级 `row_mode` 迁移目标正确；`_activate_profile_vars` 用 `hasattr` 保护 `_build_ui()` 之前的调用；非法值回退 `Visible`。
+
+提交信息「Not covered」中「mapper-specific Req02, append, and alignment suites were not repeated」
+一项，由本节补上：§5 的 B01 回归门槛就此满足。
+
+### 未覆盖
+
+- 未执行 `build.ps1` / `install.ps1`，打包与安装路径本轮未由本会话验证。
+- 未重跑 `tests/verify_req02.ps1`（本轮 `excel_mapper.ps1` 未改动）；该脚本在 CP936 下的修复已于同日单独实测退出码 0。
+- 未做 OOXML 部件级比对，格式侧仅由 `verify_alignment.ps1` 覆盖。
+- 未覆盖高 DPI 缩放（125%/150%）。
