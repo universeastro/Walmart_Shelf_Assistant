@@ -271,6 +271,40 @@ class UILayoutTests(unittest.TestCase):
         self.window.profile_var.set("支线 02")
         self.assertEqual(self.window.source_var.get(), "req.xls")
 
+    def test_profile_pages_keep_independent_row_modes_and_button_selection(self):
+        mainline_var = self.window.row_mode_var
+        self.window.row_mode_var.set("All")
+        self.assertTrue(self.window.row_mode_buttons[1].instate(["selected"]))
+
+        self.window.profile_var.set("支线 02")
+        self.assertIs(self.window.row_mode_var, self.window._profile_row_mode_vars["支线 02"])
+        self.assertIsNot(self.window.row_mode_var, mainline_var)
+        self.assertEqual(self.window.row_mode_var.get(), "Visible")
+        self.assertTrue(self.window.row_mode_buttons[0].instate(["selected"]))
+
+        self.window.profile_var.set("主线 01")
+        self.assertIs(self.window.row_mode_var, mainline_var)
+        self.assertEqual(self.window.row_mode_var.get(), "All")
+        self.assertTrue(self.window.row_mode_buttons[1].instate(["selected"]))
+
+    def test_run_mapping_uses_active_profiles_row_mode(self):
+        self.window.profile_var.set("支线 02")
+        self.window.row_mode_var.set("All")
+        for name, variable in (("a.xls", self.window.source_var), ("b.xls", self.window.target_var)):
+            path = Path(self.temp.name) / name
+            path.touch()
+            variable.set(str(path))
+        self.window.output_var.set(str(Path(self.temp.name) / "out.xls"))
+
+        with patch("app.threading.Thread") as worker, patch.object(self.window.progress, "start"):
+            self.window.run_mapping()
+
+        args = worker.call_args.kwargs["args"]
+        self.assertEqual(args[3], "All")
+        self.assertEqual(args[4], "Req02")
+        with patch("app.messagebox.showerror"):
+            self.window._finish({"success": False, "message": "test cleanup"}, 1)
+
     def test_rejecting_target_page_switch_keeps_current_page(self):
         target = Path(self.temp.name) / "02" / "B模板.xls"
         target.parent.mkdir()

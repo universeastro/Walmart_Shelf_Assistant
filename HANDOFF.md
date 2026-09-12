@@ -656,3 +656,77 @@ T02 已按上文更正完毕，用户决策已录入。
 - 未覆盖：高 DPI 125%/150%；源表多行表头；源行超过已测上限；外部工作簿公式引用；新的 `文件/03/` 需求尚未进入范围。
 
 ## 本轮写入结束 2026-09-12 09:12
+
+## 2026-09-12 Codex T21 分方案导出范围
+
+- 用户要求切换“主线 01”与“支线 02”时，导出范围随页面切换，不再沿用另一方案的选择。
+- 根因：两套路径已有独立 profile 变量，但界面仍共用一个 `row_mode_var`。
+- 实现范围：每个 profile 分别持有并持久化 `Visible` / `All`，切页时重新绑定导出范围控件；旧版配置缺失或包含非法 `row_mode` 时默认 `Visible`。
+- 映射器接口不变：执行流程继续把当前活动方案的值传给既有 `-RowMode` 参数。本轮不修改 `excel_mapper.ps1`。
+- 允许修改范围与依赖见 `TASKS.md` T21；`文件/02`、`文件/03` 和现有验证报告改动不纳入本轮。
+
+### T21 实现与主负责人验证
+
+- `app.py` 为每个方案分别建立 `row_mode` 变量；切页时同时切换路径别名、导出范围别名和单选按钮绑定。
+- V2 配置的 `profiles.Mainline/Req02` 各自新增 `row_mode`；只接受 `Visible` / `All`，旧配置缺失、类型错误或非法值均回退 `Visible`。原路径字符串类型检查保持不变。
+- 导出范围变化会标记配置待保存；`run_mapping()` 仍读取当前活动方案的变量并传入现有工作线程参数。
+- `py -m py_compile app.py`：退出码 0。
+- `py -m unittest tests.test_path_settings tests.test_ui_layout tests.verify_path_settings -v`：43/43 通过，退出码 0。
+- `py tests/verify_ui_integration.py`：6/6 通过，退出码 0；含真实 Excel COM 主线、支线与继续写入流程。
+- AGENTS 必跑主线映射：12/12 字段一致，退出码 0。
+- `powershell -File build.ps1`：退出码 0，产物包含映射脚本；PyInstaller 报告既有的可选 `mfc140u.dll` 解析警告。
+- `powershell -File install.ps1`：退出码 0，已安装到 `%LOCALAPPDATA%\Programs\WalmartShelfAssistant` 并更新桌面快捷方式。
+- `git diff --check`：退出码 0。
+- 未覆盖：高 DPI 125%/150%；本轮未改映射器，未重复支线逐格/追加/对齐专项验证；`文件/03` 仍不在范围内。
+
+## 本轮写入结束 2026-09-12 10:05
+
+## 审查开始 2026-09-12 09:38（Claude，T21）
+
+## 2026-09-12 Claude T21 独立审查结论
+
+### Findings
+
+- **未发现阻断或回归问题，T21 可通过审查。**
+- `app.py:144-146` 为 Mainline/Req02 建立两个独立 `StringVar`；`app.py:175-186` 切换活动别名；
+  `app.py:422-428` 在页面切换时把两个 Radiobutton 的 `variable` 真正重绑定到活动方案变量。
+  除检查选中样式外，本轮额外调用按钮 `invoke()`，确认点击只修改活动方案，另一方案值保持不变。
+- `app.py:207-237` 的 V2/旧版加载路径符合契约：V2 分别读取两方案 `row_mode`；旧版根级
+  `row_mode` 迁移到根据目标识别出的方案；缺失、非字符串或不在 `Visible`/`All` 内的值均保留默认
+  `Visible`。原有路径 `isinstance(value, str)` 检查仍在。
+- `app.py:249-275` 保存两方案各自的 `row_mode` 和最后活动方案；导出范围变量的 trace 会设置
+  `_paths_dirty`，因此关闭或执行映射前会持久化。重启恢复和方案隔离均由测试及独立检查覆盖。
+- `app.py:618-675` 在确认页面未切换、锁定方案控件后读取活动 `row_mode_var`，并与活动 profile
+  一起传给工作线程；运行期间程序化切页会恢复原页面，未发现跨方案读取窗口。
+- `README.md` 对首次默认、分方案记忆、切页恢复和旧配置回退的描述与实现一致。
+
+### 独立验证
+
+- `py -m py_compile app.py`：退出码 `0`。
+- `py -m unittest tests.test_path_settings tests.test_ui_layout tests.verify_path_settings -v`：
+  `43/43` 通过，退出码 `0`。
+- 临时目录内的直接控件检查（Radiobutton `invoke()` + 切页重绑定 + 旧版 `row_mode==AllAll` +
+  非法配置回退）：`PASS`，退出码 `0`。
+- `git diff --check`：退出码 `0`。
+
+### 边界与未覆盖
+
+- 本轮仅审查 T21 的 GUI/配置改动；未重复运行 Excel COM 主线/支线逐格、追加和对齐专项验证，
+  映射器本轮未改。主负责人已在上一节记录 GUI 集成、主线映射、构建与安装结果。
+- 执行环境 `Get-Date` 返回 `09:43`，早于实现方已写入的冻结标记 `10:05`；审查顺序以
+  `HANDOFF.md` 中冻结标记在前、审查标记在后的文档顺序为准，本轮未在冻结前改实现文件。
+
+## 审查结束 2026-09-12 09:44（Claude，T21）
+
+## 2026-09-12 Claude T21 审查记录勘误
+
+- 上一节独立验证中的 `row_mode==AllAll` 是记录笔误，实际检查项为旧版根级配置
+  `row_mode = "All"`；命令退出码与 `PASS` 结论不变。
+
+## 审查结束 2026-09-12 09:45（Claude，T21，勘误后）
+
+## 2026-09-12 Codex T21 收口
+
+- Claude 独立审查未发现阻断或回归，T21 状态已更新为“已完成”。
+- 交付行为：主线与支线分别记忆导出范围，切页立即恢复，重启继续保留；旧配置默认“仅可见行”。
+- 本轮仅提交 T21 范围内的实现、测试和共享文档；不提交用户现有的 `docs/VERIFICATION_REPORT.md`、`文件/02/项目需求文档02.docx` 或 `文件/03/`。

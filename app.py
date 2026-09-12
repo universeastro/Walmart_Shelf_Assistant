@@ -23,6 +23,7 @@ SETTINGS_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".config") 
 PROFILE_LABELS = {"主线 01": "Mainline", "支线 02": "Req02"}
 PROFILE_KEYS = {value: label for label, value in PROFILE_LABELS.items()}
 PATH_KEYS = ("source", "target", "output")
+ROW_MODES = ("Visible", "All")
 
 
 class CompletionDialog(tk.Toplevel):
@@ -140,6 +141,10 @@ class ShelfAssistant(tk.Tk):
             label: {key: tk.StringVar() for key in PATH_KEYS}
             for label in PROFILE_LABELS
         }
+        self._profile_row_mode_vars = {
+            label: tk.StringVar(value="Visible")
+            for label in PROFILE_LABELS
+        }
         self._profile_output_labels = {
             label: tk.StringVar(value="输出文件")
             for label in PROFILE_LABELS
@@ -147,7 +152,6 @@ class ShelfAssistant(tk.Tk):
         self._active_profile_label = "主线 01"
         self._profile_change_guard = False
         self._activate_profile_vars(self._active_profile_label)
-        self.row_mode_var = tk.StringVar(value="Visible")
         self.status_var = tk.StringVar(value="请选择文件 A 和文件 B")
         self.running = False
         self.completion_dialog = None
@@ -161,6 +165,9 @@ class ShelfAssistant(tk.Tk):
         for label, path_vars in self._profile_path_vars.items():
             for variable in path_vars.values():
                 variable.trace_add("write", lambda *_args, profile_label=label: self._mark_paths_dirty(profile_label))
+            self._profile_row_mode_vars[label].trace_add(
+                "write", lambda *_args, profile_label=label: self._mark_paths_dirty(profile_label)
+            )
         self._build_ui()
         self.profile_var.trace_add("write", self._on_profile_var_changed)
         self._refresh_ready_status()
@@ -175,6 +182,7 @@ class ShelfAssistant(tk.Tk):
         self.source_var = self._path_vars["source"]
         self.target_var = self._path_vars["target"]
         self.output_var = self._path_vars["output"]
+        self.row_mode_var = self._profile_row_mode_vars[label]
         self.output_label_var = self._profile_output_labels[label]
 
     def _validated_path_value(self, key, value):
@@ -206,6 +214,9 @@ class ShelfAssistant(tk.Tk):
                     value = values.get(key)
                     if isinstance(value, str):
                         variable.set(self._validated_path_value(key, value))
+                row_mode = values.get("row_mode")
+                if isinstance(row_mode, str) and row_mode in ROW_MODES:
+                    self._profile_row_mode_vars[label].set(row_mode)
             last_profile = settings.get("last_profile")
             if isinstance(last_profile, str) and last_profile in PROFILE_KEYS:
                 self.profile_var.set(PROFILE_KEYS[last_profile])
@@ -218,6 +229,9 @@ class ShelfAssistant(tk.Tk):
             value = settings.get(key)
             if isinstance(value, str):
                 variable.set(self._validated_path_value(key, value))
+        legacy_row_mode = settings.get("row_mode")
+        if isinstance(legacy_row_mode, str) and legacy_row_mode in ROW_MODES:
+            self._profile_row_mode_vars[legacy_label].set(legacy_row_mode)
         if any(key in settings for key in PATH_KEYS):
             self.profile_var.set(legacy_label)
             self._paths_dirty = True
@@ -243,8 +257,11 @@ class ShelfAssistant(tk.Tk):
                 "last_profile": PROFILE_LABELS[self._active_profile_label],
                 "profiles": {
                     profile_key: {
-                        key: variable.get()
-                        for key, variable in self._profile_path_vars[label].items()
+                        **{
+                            key: variable.get()
+                            for key, variable in self._profile_path_vars[label].items()
+                        },
+                        "row_mode": self._profile_row_mode_vars[label].get(),
                     }
                     for label, profile_key in PROFILE_LABELS.items()
                 },
@@ -406,6 +423,9 @@ class ShelfAssistant(tk.Tk):
         if self.running and label != self._active_profile_label:
             return False
         self._activate_profile_vars(label)
+        if hasattr(self, "row_mode_buttons"):
+            for button in self.row_mode_buttons:
+                button.configure(variable=self.row_mode_var)
         if hasattr(self, "_profile_pages"):
             self._profile_pages[label].tkraise()
             self.file_controls = self._profile_file_controls[label]

@@ -22,6 +22,7 @@
 | T18 | Codex | 阻塞 | `AGENTS.md`、`HANDOFF.md`、`docs/WORKFLOW.md` | 治理项已补；待用户确认 `文件/03/` 是否纳入新功能范围后解除 |
 | T19 | Codex | 已完成 | `tests/verify_append.ps1`、`HANDOFF.md` | 回归脚本不得因嵌套脚本 `exit` 提前结束 |
 | T20 | Claude | 已完成 | `docs/REVIEW_REQ02.md`、`HANDOFF.md` | 支线实现前历史审查及最终结论交接 |
+| T21 | Codex | 已完成 | `app.py`、`tests/test_path_settings.py`、`tests/test_ui_layout.py`、`tests/verify_path_settings.py`、`PROJECT.md`、`README.md`、`TASKS.md`、`HANDOFF.md` | T11；主线/支线分别记忆导出范围 |
 
 ## 接口约定
 

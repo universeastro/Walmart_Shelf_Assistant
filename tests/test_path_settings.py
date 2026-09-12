@@ -65,7 +65,10 @@ class PathSettingsTests(unittest.TestCase):
         window.source_var.set("new.xls")
         window.output_var.set("")
         window.destroy()
-        self.assertEqual(self.saved_profile(), {"source": "new.xls", "target": paths["target"], "output": ""})
+        self.assertEqual(
+            self.saved_profile(),
+            {"source": "new.xls", "target": paths["target"], "output": "", "row_mode": "Visible"},
+        )
 
     def test_moved_input_is_cleared_without_changing_other_paths(self):
         for key in ("source", "target"):
@@ -78,7 +81,7 @@ class PathSettingsTests(unittest.TestCase):
                 expected = dict(paths, **{key: ""})
                 self.assertEqual({name: var.get() for name, var in window._path_vars.items()}, expected)
                 window.destroy()
-                self.assertEqual(self.saved_profile(), expected)
+                self.assertEqual(self.saved_profile(), {**expected, "row_mode": "Visible"})
 
     def test_directory_is_not_restored_as_input(self):
         self.seed(json.dumps({"source": self.temporary.name}))
@@ -154,7 +157,39 @@ class PathSettingsTests(unittest.TestCase):
         window.destroy()
         data = json.loads(self.settings.read_text(encoding="utf-8"))
         self.assertEqual(data["last_profile"], "Mainline")
-        self.assertEqual(data["profiles"]["Req02"], legacy)
+        self.assertEqual(data["profiles"]["Req02"], {**legacy, "row_mode": "Visible"})
+
+    def test_profiles_keep_independent_row_modes_and_restore_them(self):
+        window = self.open_app()
+        self.assertEqual(window.row_mode_var.get(), "Visible")
+        self.switch(window, "支线 02")
+        window.row_mode_var.set("All")
+        self.switch(window, "主线 01")
+        self.assertEqual(window.row_mode_var.get(), "Visible")
+        self.switch(window, "支线 02")
+        self.assertEqual(window.row_mode_var.get(), "All")
+        window.destroy()
+
+        restored = self.open_app()
+        self.assertEqual(restored.profile_var.get(), "支线 02")
+        self.assertEqual(restored.row_mode_var.get(), "All")
+        self.switch(restored, "主线 01")
+        self.assertEqual(restored.row_mode_var.get(), "Visible")
+
+    def test_missing_or_invalid_profile_row_mode_defaults_to_visible(self):
+        settings = {
+            "version": 2,
+            "last_profile": "Req02",
+            "profiles": {
+                "Mainline": {"source": "", "target": "", "output": "", "row_mode": 12},
+                "Req02": {"source": "", "target": "", "output": ""},
+            },
+        }
+        self.seed(json.dumps(settings))
+        window = self.open_app()
+        self.assertEqual(window.row_mode_var.get(), "Visible")
+        self.switch(window, "主线 01")
+        self.assertEqual(window.row_mode_var.get(), "Visible")
 
 
 if __name__ == "__main__":
