@@ -170,6 +170,39 @@ class UILayoutTests(unittest.TestCase):
         self.assertEqual(self.window.output_var.get(), str(output.resolve()))
         self.assertNotEqual(self.window.output_label_var.get(), "输出文件")
 
+    def test_new_output_shows_generated_instead_of_replaced(self):
+        output = Path(self.temp.name) / "new-result.xlsx"
+        self.window.output_var.set(str(output))
+
+        with patch("app.CompletionDialog"):
+            self.window._set_output_action(self.window._active_profile_label, "Replace", output_exists=False)
+            self.assertIn("将生成", self.window.output_label_var.get())
+            self.window._finish(
+                {"success": True, "output": str(output), "rowsRead": 1, "rowsWritten": 1},
+                0,
+                "Replace",
+                False,
+            )
+            self.window.completion_dialog = None
+
+        self.assertIn("已生成", self.window.output_label_var.get())
+
+    def test_new_output_mode_is_forwarded_as_generation(self):
+        for name, variable in (("a.xls", self.window.source_var), ("b.xlsx", self.window.target_var)):
+            path = Path(self.temp.name) / name
+            path.touch()
+            variable.set(str(path))
+        output = Path(self.temp.name) / "not-created.xlsx"
+        self.window.output_var.set(str(output))
+
+        with patch("app.threading.Thread") as worker, patch.object(self.window.progress, "start"):
+            self.window.run_mapping()
+
+        self.assertIn("将生成", self.window.output_label_var.get())
+        self.assertFalse(worker.call_args.kwargs["kwargs"]["output_exists"])
+        with patch("app.messagebox.showerror"):
+            self.window._finish({"success": False, "message": "test cleanup"}, 1, "Replace", False)
+
     def test_output_action_is_scoped_to_profile_page(self):
         output = Path(self.temp.name) / "main-result.xlsx"
         output.touch()

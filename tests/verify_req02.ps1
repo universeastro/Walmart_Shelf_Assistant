@@ -1,4 +1,5 @@
 ﻿$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $repo = Split-Path $PSScriptRoot -Parent
 $source = Join-Path $PSScriptRoot 'fixtures\A_req02_sample.xlsx'
 $target = Join-Path $PSScriptRoot 'fixtures\B_req02_sample.xlsx'

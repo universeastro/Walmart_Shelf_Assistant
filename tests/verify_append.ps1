@@ -32,7 +32,8 @@ try {
     $excel = $null
 
     foreach ($mode in @('Visible', 'All')) {
-        & (Join-Path $PSScriptRoot 'verify_multirow.ps1') -Rows 5 -HideAt '3,5' -RowMode $mode -Target $populated -DataStartRow 20
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'verify_multirow.ps1') `
+            -Rows 5 -HideAt '3,5' -RowMode $mode -Target $populated -DataStartRow 20
         if ($LASTEXITCODE -ne 0) { throw "Multirow append failed: $mode" }
     }
 

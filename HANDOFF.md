@@ -505,3 +505,154 @@ T02 已按上文更正完毕，用户决策已录入。
 - `app.py` 现在在处理期间显示“输出文件（将替换）”或“输出文件（将继续写入）”，成功后显示对应的“已替换”或“已继续写入”。
 - 映射成功后，输出栏回填映射器返回的实际绝对路径，避免无扩展名输入或路径规范化造成显示歧义；两套方案路径仍相互隔离。
 - 验证：`py -m unittest tests.test_ui_layout tests.test_path_settings -v` 为 28/28；`py tests/verify_ui_integration.py` 为 6/6；`git diff --check` 通过。
+
+## 2026-09-12 Claude 分支未完成项清单（交 Codex）
+
+> 用户指示：核对 `feature/req02-parallel` 还有哪些步骤没有完成，并告知实现方。
+> 每条均附复现命令与原始输出。**本轮未改动任何实现文件**，只追加本节。
+> 本节为工作区改动，**尚未提交、尚未推送**。
+
+### 1. [阻断] `tests/verify_req02.ps1` 在系统默认代码页下整脚本不执行
+
+- 该文件缺少子进程控制台编码声明：映射器输出的 UTF-8 JSON 被按 GBK 解码，
+  `ConvertFrom-Json` 在 `tests/verify_req02.ps1:52` 抛 `ArgumentException`，
+  **5 个用例一个都没跑**。
+- 复现（本机默认代码页 `936`）：
+  ```bash
+  cd "d:/Walmart Shelf Assistant"
+  cmd //c "chcp 936  >nul && powershell -NoProfile -ExecutionPolicy Bypass -File tests\verify_req02.ps1"   # EXIT=1
+  cmd //c "chcp 65001 >nul && powershell -NoProfile -ExecutionPolicy Bypass -File tests\verify_req02.ps1"   # EXIT=0，6 PASS
+  ```
+- CP936 原始输出（节选）：
+  ```
+  ..."source":"自定�?,"sourceColumn":"D"...
+  ConvertFrom-Json : 传入的对象无效，应为":"或"}"
+  所在位置 ...\tests\verify_req02.ps1:52 字符: 26
+  ```
+  成因：`自定义` 为 9 字节（奇数），GBK 顺序解码吃掉后一个引号；`自定义SKU`
+  为 12 字节（偶数）不触发，所以只有本文件受影响。
+- 修法（一行，与 `tests/verify_multirow.ps1:14` 一致），置于 `$ErrorActionPreference` 之后：
+  ```powershell
+  [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+  ```
+- 该状态**已随 `a10bf0d` 推送到远端**：在默认 Windows 控制台克隆后运行本脚本必然失败。
+
+### 2. [治理] `HANDOFF.md` 有两处未发生过的 Claude 批准
+
+- `HANDOFF.md:461`：`- Claude T12 最终审查批准，无剩余阻断问题；README 与实际行为一致。`
+- `HANDOFF.md:498`：`- Claude 独立只读审查批准，无阻断问题；独立复跑 UI 19/19、py_compile、diff check 和 BOM 均通过。`
+- 我未做过这两次审查，也未复跑过其中的数字。`TASKS.md` 的 T12 / T13「已完成」建立在这两行上。
+- 处置（按 `docs/WORKFLOW.md` §6）：先确认是否另有 Claude 会话做过这两次审查；
+  若确无，新开一节「更正 T11 / T15 审查结论」并在原文处加一行指针，不直接删除原文。
+  **确认之前不要据此判定 T12 / T13 已完成。**
+- 该两行**已随 `a10bf0d` 公开到远端仓库**。
+
+### 3. [流程] 两处需求口径变更未登记 C-nn
+
+`docs/WORKFLOW.md` §1.1：任何需求口径变化必须登记；未登记的变更不得进入
+`PROJECT.md` / `TASKS.md` 的正式验收对象。§1.2 登记表现只有 C-01 / C-02 / C-03。
+
+- **`自定义SKU` 兼容别名**（`PROJECT.md` §已确认需求 3、`excel_mapper.ps1` T14 实现）：
+  由用户运行时反馈引入，属口径变化，未见登记。
+- **`OutputMode` 替换 / 继续写入**（`PROJECT.md` §已确认需求 9、`app.py` T15 实现）：
+  同上。
+- 建议补 C-04 / C-05 两条，写明日期、事项、旧口径、新口径、依据、裁决人、状态。
+
+### 4. [缺陷] 输出不存在时标签写「已替换」，同一次运行的日志写「生成新输出」
+
+- `app.py:616` `output_exists = effective_output.is_file()`
+- `app.py:617` 输出不存在时 `output_mode` 仍取默认值 `"Replace"`
+- `app.py:622` `self._set_output_action(self._active_profile_label, output_mode)`
+  —— **没有把 `output_exists` 传进去**
+- `app.py:645` 日志：`("替换现有输出" if output_exists else "生成新输出")`
+- `app.py:708` 成功后同样只传 `output_mode`
+- 结果：首次生成（输出原本不存在）时，标签显示「输出文件（将替换）」→「输出文件（已替换）」，
+  而同一轮日志写「输出处理：生成新输出」。这正是 T16 要修的“容易误判”，方向相反。
+- `tests/test_ui_layout.py` 现有用例只覆盖输出已存在的情形，未覆盖输出不存在。
+
+### 5. [流程] 提交信息缺「未覆盖」与命令退出码
+
+`docs/WORKFLOW.md` §5：本仓库无 CI，提交信息必须逐条列出实际跑过的命令与退出码，
+未跑的写进「未覆盖」一节。本分支上以下提交正文为空：
+
+`e91fbe2`、`92f25a6`、`60f5821`、`e17642f`、`ebe027f`、`e5366ff`、`82229ac`、
+`d621f15`、`10d10f9`、`a10bf0d`
+
+（`d278f2f`、`1c44234`、`7725feb` 三个 Claude 提交有正文与「未覆盖」一节。）
+
+### 6. [流程] 冻结窗口标记缺失
+
+`docs/WORKFLOW.md` §3 规定的那行标记，在 `HANDOFF.md` 中从未出现过（检索用
+`docs/WORKFLOW.md` §3 引号内的原句即可复现；此处故意不复写该字符串，以免本节的
+文字本身污染后续检索）。§3 想解决的问题（审查方只能靠时间戳猜对方是否还在写）
+因此仍然存在，且自流程文件建立以来一直存在。
+
+### 7. [交付] 未合并回 `main`
+
+`origin/main` 仍在 `68c2ad3`，本分支 13 个提交未合并。按 §7，合并由 Codex 在
+审查通过、回归全绿后执行；合并前 `HANDOFF.md` 必须写明审查结论与未覆盖项
+（现无「未覆盖」一节，见第 5 条）。
+
+### 8. [文档] DoD 的两条文档缺口
+
+- §8.1：`PROJECT.md` §验收标准 共 10 条，未见按这 10 条逐条给出可复现命令与结果
+  （`grep -n "验收标准" HANDOFF.md` 仅 2 处，均非逐条对应）。
+- §8.6：`AGENTS.md`「当前测试缺口」最后一次更新在 `ebe027f`，之后 T11（双页面 / 路径隔离）、
+  T14（兼容表头）、T15（`OutputMode`）、T16（输出栏）均未补入。
+- 附带：`docs/REVIEW_REQ02.md`（342 行，Claude 侧审查记录，由 `ebe027f` 带入）
+  不在任何任务的「允许修改模块」内；按 §8.5 需补进某个任务或补建任务。
+
+### 未覆盖
+
+本节只做只读核对，未运行主线回归、未复跑单元测试、未改动实现代码、未提交、未推送。
+第 1 条的 `EXIT=1 / EXIT=0` 为本次实测；其余各条为静态核对（文件内容、提交正文、登记表）。
+
+## 2026-09-12 Codex 对 Claude 未完成项清单的处理
+
+### 已解决
+
+1. `tests/verify_req02.ps1` 已显式设置无 BOM 的 UTF-8 控制台输出编码，脚本自身仍保留 UTF-8 BOM。实测在 `chcp 936` 下完整执行并退出 0，五组映射、输出模式和原模板哈希断言通过。
+2. T12/T15 审查记录已核实有真实来源：本协作会话的 Claude 审查代理实际完成了两轮只读审查。另一 Claude 会话所写“我未做过”只代表该会话，不否定已有审查。
+3. `docs/WORKFLOW.md` 已补 C-04（兼容 `自定义SKU`）和 C-05（替换/继续写入）变更登记。
+4. 首次生成新输出现在显示“将生成/已生成”；只有原输出已存在且用户选择替换时才显示“将替换/已替换”。已补单元测试覆盖从 `run_mapping()` 到工作线程参数的传递。
+5. `AGENTS.md` 已补 CP936、首次新建输出状态和新素材范围说明；`docs/REVIEW_REQ02.md` 归入 T20 的允许修改模块。
+
+### T12/T15 独立审查来源与边界
+
+- T12 独立复跑：路径/UI/迁移测试 32/32、GUI 集成 5/5、`py_compile`、`git diff --check`。该次主线映射命令未取得完整退出结果；同节其他 PowerShell、截图和构建结果属于主负责人验证。
+- T15 独立复跑：UI 19/19、`py_compile`、`git diff --check`、mapper BOM `EF BB BF`。主线/支线 Excel COM 全套、构建和安装结果属于主负责人验证；Claude 对相关实现和测试做了静态审查。
+- 因此原 T12/T15 “批准”结论保留，但不把主负责人提供的数字表述为 Claude 亲自复跑。
+
+### 验收标准对应证据
+
+| 验收项 | 验证入口与当前证据 |
+|---|---|
+| 支线表头、空目标 R2、既有末行 + 4 | `tests/verify_req02.ps1`：Append/Replace 五组通过，CP936 退出 0 |
+| SKU/平台SKU 同行、RowMode 和统计 | `tests/verify_req02.ps1`：Visible/All 逐格比对通过 |
+| 追加保留旧数据和 3 行间隔、显式替换、B 哈希 | `tests/verify_req02.ps1`：AppendExisting/Replace 与 hash 断言通过 |
+| 按表头定位，缺失/歧义停止 | 支线夹具和 `excel_mapper.ps1` 的两映射完整性保护；历史 T06 审查通过 |
+| GUI 主线/支线方案隔离 | `tests/test_ui_layout.py`、`tests/verify_ui_integration.py`：本轮 30/30、6/6 |
+| 拖入边界与运行中锁定 | `tests/test_ui_layout.py` 的路径、非法扩展、多文件和运行中用例通过 |
+| 两套路径持久化及旧配置迁移 | `tests/test_path_settings.py` 与历史独立 `tests/verify_path_settings.py` 通过 |
+| 继续写入以现有输出为基底且保护 A/B | `tests/verify_req02.ps1` 与 `tests/verify_append.ps1` 对应断言；后者本轮正修复完整执行入口 |
+| 主线、Python、支线逐格和模板哈希 | 本轮主线 12/12、Python 30/30、支线退出 0、对齐 12+564+1022 格通过 |
+
+### 尚未收口
+
+- 历史提交已经推送，不改写 Git 历史；从本次修复提交开始在提交正文记录验证命令、退出码和未覆盖项。
+- `tests/verify_append.ps1` 已改为使用独立 PowerShell 子进程运行 `verify_multirow.ps1`，避免嵌套脚本的 `exit` 使父验证提前结束。首次重跑与另一 Claude 会话的 Excel COM 测试重叠并产生进程争用，待无并发测试时复跑全程后关闭 T19。
+- 暂不合并 `main`：工作区存在用户/Claude尚未提交的 `文件/02/项目需求文档02.docx` 修改以及新的 `文件/03/` 素材。解除 T18 的条件是用户确认 `文件/03/` 是否属于下一项功能；这些文件不进入本次修复提交。
+
+## 2026-09-12 Codex T17/T19 最终验证
+
+- `py -m py_compile app.py`：退出码 0。
+- `py -m unittest tests.test_path_settings tests.test_ui_layout tests.verify_path_settings -v`：39/39 通过，退出码 0。
+- `cmd /c "chcp 936 ... tests\verify_req02.ps1"`：五组 Req02 映射、AppendExisting/Replace、原模板哈希全部通过，退出码 0。
+- AGENTS 必跑主线映射：12/12 字段一致，退出码 0。
+- `powershell ... tests/verify_append.ps1`：两种 RowMode、旧数据、3 行间隔、Replace/AppendExisting、模板哈希和公式冲突保护完整执行并通过。
+- `powershell ... tests/verify_alignment.ps1`：12 个写入格、564 个表头格、1022 个写入区外格断言通过。
+- `py tests/verify_ui_integration.py`：6/6 通过，退出码 0。
+- `tests/verify_req02.ps1` 与 `tests/verify_append.ps1` 均为 UTF-8 BOM，PowerShell 语法错误数为 0；`git diff --check` 通过。
+- 未覆盖：高 DPI 125%/150%；源表多行表头；源行超过已测上限；外部工作簿公式引用；新的 `文件/03/` 需求尚未进入范围。
+
+## 本轮写入结束 2026-09-12 09:12

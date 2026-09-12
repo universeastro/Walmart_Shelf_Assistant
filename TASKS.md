@@ -18,6 +18,10 @@
 | T14 | Codex | 已完成 | `excel_mapper.ps1`、`tests/verify_req02.ps1`、`PROJECT.md`、`README.md`、`HANDOFF.md` | 支线兼容源表头“自定义SKU” |
 | T15 | Codex | 已完成 | `app.py`、`excel_mapper.ps1`、`tests/test_ui_layout.py`、`tests/verify_ui_integration.py`、`tests/verify_req02.ps1`、`tests/verify_append.ps1`、`README.md`、`PROJECT.md`、`HANDOFF.md` | 已存在输出可选替换或继续写入 |
 | T16 | Codex | 已完成 | `app.py`、`tests/test_ui_layout.py`、`HANDOFF.md` | T15；显示替换/继续写入结果及实际输出路径 |
+| T17 | Codex | 已完成 | `app.py`、`tests/test_ui_layout.py`、`tests/verify_req02.ps1`、`HANDOFF.md` | Claude 清单：首次新建状态显示、CP936 验证兼容 |
+| T18 | Codex | 阻塞 | `AGENTS.md`、`HANDOFF.md`、`docs/WORKFLOW.md` | 治理项已补；待用户确认 `文件/03/` 是否纳入新功能范围后解除 |
+| T19 | Codex | 已完成 | `tests/verify_append.ps1`、`HANDOFF.md` | 回归脚本不得因嵌套脚本 `exit` 提前结束 |
+| T20 | Claude | 已完成 | `docs/REVIEW_REQ02.md`、`HANDOFF.md` | 支线实现前历史审查及最终结论交接 |
 
 ## 接口约定
 

@@ -545,8 +545,10 @@ class ShelfAssistant(tk.Tk):
     def _choose_existing_output_mode(self, output):
         return OutputModeDialog.ask(self, output.name)
 
-    def _set_output_action(self, profile_label, output_mode, completed=False):
-        if output_mode == "AppendExisting":
+    def _set_output_action(self, profile_label, output_mode, completed=False, output_exists=True):
+        if not output_exists:
+            action = "已生成" if completed else "将生成"
+        elif output_mode == "AppendExisting":
             action = "已继续写入" if completed else "将继续写入"
         elif output_mode == "Replace":
             action = "已替换" if completed else "将替换"
@@ -619,7 +621,7 @@ class ShelfAssistant(tk.Tk):
             output_mode = self._choose_existing_output_mode(effective_output)
             if output_mode is None:
                 return
-        self._set_output_action(self._active_profile_label, output_mode)
+        self._set_output_action(self._active_profile_label, output_mode, output_exists=output_exists)
         self.status_var.set("正在处理...")
         self.last_output = None
         self._profile_last_outputs[self._active_profile_label] = None
@@ -648,10 +650,12 @@ class ShelfAssistant(tk.Tk):
         threading.Thread(
             target=self._run_worker,
             args=(source, target, output, row_mode, profile, output_mode),
+            kwargs={"output_exists": output_exists},
             daemon=True,
         ).start()
 
-    def _run_worker(self, source, target, output, row_mode="Visible", profile="Mainline", output_mode="Replace"):
+    def _run_worker(self, source, target, output, row_mode="Visible", profile="Mainline",
+                    output_mode="Replace", output_exists=True):
         command = [
             "powershell.exe",
             "-NoProfile",
@@ -683,11 +687,11 @@ class ShelfAssistant(tk.Tk):
             )
             raw = completed.stdout.strip().splitlines()
             payload = json.loads(raw[-1]) if raw else {"success": False, "message": completed.stderr.strip()}
-            self.after(0, self._finish, payload, completed.returncode, output_mode)
+            self.after(0, self._finish, payload, completed.returncode, output_mode, output_exists)
         except Exception as exc:  # pragma: no cover - UI error path
-            self.after(0, self._finish, {"success": False, "message": str(exc)}, 1, output_mode)
+            self.after(0, self._finish, {"success": False, "message": str(exc)}, 1, output_mode, output_exists)
 
-    def _finish(self, payload, returncode, output_mode=None):
+    def _finish(self, payload, returncode, output_mode=None, output_exists=True):
         self.running = False
         self.progress.stop()
         self.progress.configure(value=0)
@@ -705,7 +709,8 @@ class ShelfAssistant(tk.Tk):
                 self._profile_last_outputs[self._active_profile_label] = self.last_output
                 self.output_var.set(str(self.last_output))
                 self.open_output_button.configure(state="normal")
-            self._set_output_action(self._active_profile_label, output_mode or "Replace", completed=True)
+            self._set_output_action(self._active_profile_label, output_mode or "Replace", completed=True,
+                                    output_exists=output_exists)
             self.status_var.set("处理完成")
             self.status_label.configure(style="Success.TLabel")
             self._write_log(payload.get("message", "映射完成。"))
