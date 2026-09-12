@@ -1146,3 +1146,65 @@ Claude 未改 `TASKS.md`——按 `TASKS.md` 治理规则，共享文档归 T23�
 
 - Req03 实现、测试、素材和文档已提交为 `5e61098 feat: add req03 excel mapping workflow`。
 - 分支仍为 `feature/req03-parallel`；按用户此前约定仅保留本地提交，本轮未推送、未合并到 `main`。
+
+## 2026-09-12 交付后独立复核（Claude；针对已提交状态 `f8ac818`）
+
+> 本轮在 Codex 完成 T29 并提交 `5e61098` / `f8ac818` **之后**进行，复核对象是**已提交的字节**，
+> 不是工作区快照。复核开始与结束两次取样均为 `app.py` = `cba1d6d26caba3536763d1d26e758977`、
+> `excel_mapper.ps1` = `efd2d8a3593d54e63b4b67b2194aafce`，HEAD 恒为 `f8ac818`，
+> 因此下列结论对应当前历史，不是对移动目标的判断。
+
+### 复核方式
+
+不复用 `tests/verify_req03*.ps1` 的断言，按 `PROJECT.md` 验收标准另写一套对照脚本，
+在 `%TEMP%\req03v\` 下运行（未入库），源与目标先复制成 ASCII 路径以避开中文命令行参数编码问题。
+
+### 独立证据
+
+真实 A/B（`文件/03/A模板02.xls` + `文件/03/XPY沃尔玛价格计算.xls`），26/26 通过：
+
+- 首批 `writeStartRow=2`、`rowsWritten=306`、`existingLastRow=0`、`skipped` 为空、隐藏行 66。
+- 六字段 306×6 = 1836 格逐格与源列 D/AA/AE/AY/AZ/BA 比对，无错位、无串列。
+- 类型：SKU 列为文本；`SKU价(￥)`、`重量(g)`、`长`、`宽`、`高` 五列 `Value2` 为数值。
+- 第二批：`existingLastRow=307`、`writeStartRow=311`，308–310 三行六个目标列全空，1836 格再次一致。
+- `Q1:Q5220`、`R2:R5220`、`K2:N16601`、`D2:E16601` 公式逐格不变；`价格` 与
+  `运费表（公式数据，不动）` 两表的 UsedRange 地址与单元格内容哈希均不变；写入区未产生公式。
+- 运行前后原始 B 的 md5 仍为 `7422f104cd1332d7ca99ca005f08bf78`。
+- 格式：`A1:J1`、`A2:J307`、`A308:J600` 三段的 `NumberFormat`、`Font.Name/Size/Bold`、
+  `Interior.ColorIndex`、水平/垂直对齐、`WrapText`，以及 `ColumnWidth`/`RowHeight`，
+  与 B 逐项哈希一致。
+
+表头优先 / 列字母兜底（用 `tests/fixtures/B_req03_sample.xls` 改造出四份副本），9/9 通过：
+
+- 六个表头搬到 U:Z：六条映射全部 `targetMethod=header`，数据落在 U:Z，A/B/C/H/I/J 保持空。
+- 六个表头改成不可识别文本：六条全部 `targetMethod=fallback-column`，数据落在 A/B/C/H/I/J。
+- 把 `导入 单位转换` 改名为 `renamed-tab`，使它与 `价格` 表同时含六个表头：报错拒绝、
+  未产出文件、未任选其一。
+- 列宽 8.38 与列宽 40 下表头匹配结果相同，未发现表头识别依赖列宽。
+
+回归（全部退出码 0）：Mainline `verify_mapping.ps1` 12/12；`verify_req02.ps1`；
+`verify_multirow.ps1 -Rows 372`（4464 格）；`verify_append.ps1`；`verify_alignment.ps1`；
+`verify_autofilter.ps1`；`py -m unittest tests.test_path_settings tests.test_ui_layout
+tests.verify_path_settings` 48/48；`tests.verify_ui_integration` 7/7（含真实 Req03 GUI 全流程）；
+`tests/verify_req03.ps1` 全场景。四个 Req03 相关 `.ps1` 均为 UTF-8 BOM，语法错误 0。
+
+### 非阻断观察
+
+1. `app.py` 的 `_profile_label_for_target` 为支线 03 硬编码业务文件名 `xpy沃尔玛价格计算.xls`。
+   它只驱动「是否切换方案页」的确认框，且已有测试覆盖；但本项目的既定口径是
+   「按工作表名/表头名反查，不按文件名猜」，与 `\01\`、`\02\` 两条按目录判定的既有规则风格也不一致。
+   若用户真实 B 被改名，自动提示会静默失效——是降级，不会写错数据。
+2. `Convert-Req03Value` 以 `NumberStyles::Float` 判定「完整数字字符串」，实测该口径还接受
+   `NaN`、`Infinity`、`-Infinity` 与指数形式（`1E5` → 100000）；`1,234` 与 `0x10` 被正确拒绝。
+   价格、重量、长宽高不会出现这些写法，故不阻断，但该分支无测试覆盖。
+3. 本轮复核脚本自身出过一次错：手写表头 `SKU(直接从sheet 1导入）` 时漏字，导致未命中而回退到
+   列字母，一度被误读为产品缺陷。修正后 9/9 通过。该错误在复核脚本内，不涉及产品代码。
+
+### 未覆盖
+
+- 未复跑 `build.ps1` / `install.ps1`，未复核 T29 关于 PyInstaller 与安装版的结论。
+- 未覆盖 125%/150% 高 DPI、第二台电脑、其他 Excel 版本与位数。
+- 未做用户对最终业务产物的人工验收。
+- 未穷举真实 B 的全部样式、对象、名称与外部引用；只覆盖写入块、保护区域与非目标工作表。
+
+**结论：无阻断项。** 提交的字节与 `PROJECT.md` 验收标准一致，01/02 无回归。
