@@ -20,7 +20,7 @@ except ImportError:
 APP_DIR = Path(__file__).resolve().parent
 MAPPER = APP_DIR / "excel_mapper.ps1"
 SETTINGS_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".config") / "WalmartShelfAssistant" / "settings.json"
-PROFILE_LABELS = {"主线 01": "Mainline", "支线 02": "Req02"}
+PROFILE_LABELS = {"主线 01": "Mainline", "支线 02": "Req02", "支线 03": "Req03"}
 PROFILE_KEYS = {value: label for label, value in PROFILE_LABELS.items()}
 PATH_KEYS = ("source", "target", "output")
 ROW_MODES = ("Visible", "All")
@@ -459,6 +459,8 @@ class ShelfAssistant(tk.Tk):
         if not isinstance(target, str):
             return None
         target_norm = target.strip().replace("/", "\\").lower()
+        if target_norm.rsplit("\\", 1)[-1] == "xpy沃尔玛价格计算.xls":
+            return "支线 03"
         if target_norm.endswith("\\02\\b模板.xls") or "\\02\\b模板.xls" in target_norm:
             return "支线 02"
         if "\\01\\" in target_norm and target_norm.rsplit("\\", 1)[-1].startswith("b模板"):
@@ -491,6 +493,9 @@ class ShelfAssistant(tk.Tk):
             messagebox.showwarning("文件不存在", "拖入的 Excel 文件不存在。", parent=self)
             return "break"
         profile_label = profile_label or self._active_profile_label
+        if kind == "output" and profile_label == "支线 03" and path.suffix.lower() != ".xls":
+            messagebox.showwarning("输出格式不支持", "支线 03 的输出文件必须使用 .xls 格式。", parent=self)
+            return "break"
         if kind == "target":
             profile_label = self._resolve_target_profile(path, profile_label)
             variable = self._profile_path_vars[profile_label]["target"]
@@ -552,11 +557,17 @@ class ShelfAssistant(tk.Tk):
             self._set_default_output(profile_label)
 
     def _choose_output(self):
+        target = self.target_var.get().strip()
+        is_req03 = self._active_profile_label == "支线 03"
+        default_extension = ".xls" if is_req03 else ".xlsx"
+        filetypes = (("Excel 97-2003 工作簿", "*.xls"), ("所有文件", "*.*")) if is_req03 else (
+            ("Excel 文件", "*.xls;*.xlsx;*.xlsm"), ("所有文件", "*.*")
+        )
         path = filedialog.asksaveasfilename(
             title="选择输出文件",
-            defaultextension=".xlsx",
+            defaultextension=default_extension,
             confirmoverwrite=False,
-            filetypes=[("Excel 工作簿", "*.xlsx"), ("所有文件", "*.*")],
+            filetypes=filetypes,
             **self._browse_options(self.output_var, save=True),
         )
         if path:
@@ -588,7 +599,8 @@ class ShelfAssistant(tk.Tk):
         target = path_vars["target"].get().strip()
         if target and not path_vars["output"].get().strip():
             target_path = Path(target)
-            path_vars["output"].set(str(target_path.with_name(target_path.stem + "_已填充.xlsx")))
+            suffix = ".xls" if profile_label == "支线 03" else ".xlsx"
+            path_vars["output"].set(str(target_path.with_name(target_path.stem + "_已填充" + suffix)))
 
     def _resolve_target_profile(self, path, current_label):
         suggested = self._profile_label_for_target(str(path))
@@ -629,6 +641,9 @@ class ShelfAssistant(tk.Tk):
             messagebox.showwarning("缺少输出路径", "请选择输出文件路径。")
             return
         effective_output = self._effective_output_path(output, target)
+        if self._active_profile_label == "支线 03" and effective_output.suffix.lower() != ".xls":
+            messagebox.showwarning("输出格式不支持", "支线 03 的输出文件必须使用 .xls 格式。")
+            return
         if effective_output.resolve() in (target.resolve(), source.resolve()):
             messagebox.showwarning("输出路径无效", "输出文件不能覆盖文件 A 或文件 B。")
             return

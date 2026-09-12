@@ -807,24 +807,24 @@ T02 已按上文更正完毕，用户决策已录入。
 4. **写入触发全表重算。** 写 C/H/I/J 会带动 D/E/K/L/M（16,601 行）与 `价格` 表
    （8,268×255）重算；属模板设计，非缺陷，但验证规模须按此准备。
 
-## 2026-09-12 初步语义建议（Claude，T24，待用户确认）
+## 2026-09-12 初步语义建议（Claude，T24；后续裁决见文末）
 
-- **C-01 行准入建议**：沿用现有逻辑，六个字段任一非空即视为一条数据行。
-- **C-02 隐藏行建议**：保留既有「仅可见行 / 全部数据行」开关，03 默认「仅可见行」（306 行）。
-- **C-03 素材范围建议**：本轮不解析 mp4，仅按 docx 与实测 Excel 推进。
+- **R03-01 行准入建议**：沿用现有逻辑，六个字段任一非空即视为一条数据行。
+- **R03-02 隐藏行建议**：保留既有「仅可见行 / 全部数据行」开关，03 默认「仅可见行」（306 行）。
+- **R03-03 素材范围建议**：本轮不解析 mp4，仅按 docx 与实测 Excel 推进。
   原因：系统仅有 playwright 精简版 ffmpeg（不支持 mp4 封装），`%TEMP%` 下的
   `ffmpeg-release-essentials.zip`（161,552,682 字节）不是有效 zip，无法解出帧。
-- **C-04 追加建议**（随 01/02 口径沿用）：「隔三行」= 末行 N → 新批次从 N+4 开始。
+- **R03-04 追加建议**（随 01/02 口径沿用）：「隔三行」= 末行 N → 新批次从 N+4 开始。
 
 ## 2026-09-12 三份共享文档建立（Claude，T23）
 
 - `PROJECT.md` 重写为 03 阶段目标/需求/技术约束/验收标准/分工，保留 01/02 回归约束。
 - `TASKS.md` 追加 T23–T29，新增「03 阶段新增约定」接口条目；T01–T22 原样保留。
-- **待用户确认项**：03 的输出默认扩展名沿用 B 的 `.xls`（`PROJECT.md` 验收标准第 7 条）。
+- **当时待用户确认项**：03 的输出默认扩展名沿用 B 的 `.xls`（现已确认，见文末 R03-06）。
 
 ### 未覆盖
 
-- 视频内容未解析（C-03），语义仅来自 docx 与 Excel 实测。
+- 视频内容未解析（R03-03），语义仅来自 docx 与 Excel 实测。
 - 未运行任何映射、未改动 `excel_mapper.ps1` / `app.py`，实现尚未开始。
 - 本轮未做 B 文件的打开-保存往返测试，R4 的重算规模为推算而非实测。
 
@@ -838,8 +838,8 @@ T02 已按上文更正完毕，用户决策已录入。
 上一节的归属表述与工具记录不符，按用户裁定更正：
 
 - 三份共享文档的**初稿**由 Claude 在本次会话按用户指示写入（工具时间戳 11:06–11:07 那版是
-  Codex 的复核改写版；初稿更早）；Codex 随后复核、重编号并把 C-01–C-04 调整为待确认口径。
-- 11:22:21 的修订由 Codex 写入，新增视频解码证据与 C-05，质量高于初稿，此点无争议。
+  Codex 的复核改写版；初稿更早）；Codex 随后复核、重编号并把 R03-01–R03-04 调整为待确认口径。
+- 11:22:21 的修订由 Codex 写入，新增视频解码证据与 R03-05，质量高于初稿，此点无争议。
 - 分工仍按 TASKS.md：**T23 负责人 Codex，T24 负责人 Claude**。本节只更正“谁写的初稿”，
   不改变任务归属与完成状态。
 - 目的：署名影响后续「该问谁」，与 `docs/WORKFLOW.md` 证据可追溯的要求一致。
@@ -869,18 +869,275 @@ T02 已按上文更正完毕，用户决策已录入。
 
 ### 对此前记录的更正
 
-- 上文 C-03“本轮不解析 mp4”已过期，以本节为准；两段视频现已纳入需求分析。
-- C-04 `N+4` 与“粘贴为值”已有直接视频证据；新增 C-05 数值类型契约。
-- 视频未覆盖空字段行，因此 C-01“六字段任一非空即准入”仍是待用户确认的实现建议。
-- 视频只展示可见的 306 行，因此它支持 C-02 默认 `Visible`，但是否保留 `All` 作为可选项仍按现有产品接口建议，待用户确认。
+- 上文 R03-03“本轮不解析 mp4”已过期，以本节为准；两段视频现已纳入需求分析。
+- R03-04 `N+4` 与“粘贴为值”已有直接视频证据；新增 R03-05 数值类型契约。
+- 视频未覆盖空字段行，因此 R03-01“六字段任一非空即准入”当时仍是待用户确认的实现建议。
+- 视频只展示可见的 306 行，因此它支持 R03-02 默认 `Visible`，但是否保留 `All` 作为可选项当时仍待用户确认。
 
 > **口径更正（Claude，2026-09-12 校验后）**：上面两条的“待用户确认”已被用户裁决取代——
-> 用户在本会话明确答复：**C-01 沿用现有逻辑（六字段任一非空即准入）**、
-> **C-02 保留「仅可见行 / 全部数据行」开关且 03 默认「仅可见行」**。
-> 视频侧证与用户裁决方向一致（可见 306 行）。C-01/C-02 不再是待确认项，
-> 03 阶段唯一未决项是输出默认扩展名 `.xls`。
+> 用户在本会话明确答复：**R03-01 沿用现有逻辑（六字段任一非空即准入）**、
+> **R03-02 保留「仅可见行 / 全部数据行」开关且 03 默认「仅可见行」**。
+> 视频侧证与用户裁决方向一致（可见 306 行）。R03-01/R03-02 不再是待确认项。
 
 ### 本轮范围
 
 - 仅在系统临时目录生成抽帧图，未写入仓库、未修改两个 mp4、Excel 或实现代码。
 - 正式实现仍未开始。
+
+## 2026-09-12 用户裁决 R03-06 与文档同步待办（Claude，校验 `156ffc4` 后）
+
+### 用户裁决
+
+用户在 Claude 会话中就 `.xls` 默认输出明确裁决（2026-09-12）：
+
+> **R03-06：03 的输出默认沿用 B 的扩展名 `.xls`。**
+
+至此 03 阶段语义口径全部确定，**没有待确认项**：R03-01/R03-02/R03-06 用户裁决，
+R03-03/R03-04/R03-05 有视频直接证据（R03-05 另经源文件类型实测复核）。
+
+### 待 Codex 同步（三份文档此前互不一致）
+
+`git status` 显示 `PROJECT.md` 在提交 `156ffc4`（11:27:40）之后由 Codex 于 **11:28:17** 重写，
+其中已把 `C-01`–`C-05` 改名为 `R03-01`–`R03-05`，并新增 `R03-06 输出格式（用户已裁决）`。
+改名与 R03-06 的**实体内容经用户本次裁决追认，成立**；但另两份文档仍是旧口径：
+
+| 文件 | 现存过期表述 |
+|---|---|
+| `TASKS.md` | 第 5–6 行「仅 `.xls` 默认输出仍待用户确认」；第 66 行「（**待用户确认**，见 `PROJECT.md` 当前状态）」 |
+| `HANDOFF.md` | 上节末尾「03 阶段唯一未决项是输出默认扩展名 `.xls`」 |
+
+**请 Codex 把上表两处改为「R03-06 已由用户裁决 2026-09-12」，与 `PROJECT.md` 对齐。**
+Claude 未改 `TASKS.md`——按 `TASKS.md` 治理规则，共享文档归 T23（Codex）。
+
+### 过程记录
+
+- 用户本次亦明确：`feature/req03-parallel` **暂不推送**，`156ffc4` 留在本地。
+- 本轮 Claude 未改动任何实现文件；`app.py`、`excel_mapper.ps1` 与已验证基线逐字节一致。
+- Claude 更正自身此前一条错误结论：曾报告两段 mp4 无法解码，实为只试了 `imageio`
+  而未试 `imageio_ffmpeg`；Codex 用后者成功解码，该结论由 Codex 更正，现予确认。
+
+## 2026-09-12 用户裁决（Req03 输出格式）
+
+- **R03-06 输出格式**：输出默认沿用 B 的 `.xls` 格式，不默认转换为 `.xlsx`。
+- 至此 Req03 当前列出的语义项均已明确；本次仅同步共享需求与接口约定。
+- 用户尚未指示正式开始，T25–T29 状态不变。
+
+### 同步待办已消解（Claude，2026-09-12 追加）
+
+上一节表格中列出的 `TASKS.md`、`HANDOFF.md` 两处过期表述，**Codex 已于 11:29:06（`TASKS.md`）
+与 11:31:19（`HANDOFF.md`）自行改完**，与 `PROJECT.md` 一致，无需再处理：
+
+- `TASKS.md` 第 5–6 行现为「R03-01、R03-02、R03-06 已由用户裁决」；第 66 行现为
+  「R03-06，用户已于 2026-09-12 确认」。
+- 本文档上节所述的「唯一未决项」句已被本次裁决取代。
+- 三份共享文档关于 03 语义口径**已全部一致，无待确认项**。冻结口径见上节与
+  `PROJECT.md`「语义口径」小节；T25 实现可直接以 `R03-01`–`R03-06` 为准，不必再问用户。
+
+## 2026-09-12 Codex 正式开工（T25）
+
+- 用户已明确指示“正式开始”；T25 状态改为“进行中”。
+- 本阶段先修改 `excel_mapper.ps1`，实现 Req03 profile、六字段映射、目标工作表精确定位、
+  仅按 A/B/C/H/I/J 检测末行、SKU 文本与其余五列完整数字转换，以及写入区域保护。
+- T25 完成并通过专项验证后，再依次进入 T26 GUI、T27 测试、T28 Claude 独立复审和 T29 整合。
+
+## 2026-09-12 Codex T25 映射器实现与验证
+
+- `excel_mapper.ps1` 新增 `Req03` profile，按名称优先定位 `导入 单位转换`，并支持六字段表头匹配和
+  文档列字母兜底；目标映射方法写入向后兼容的 JSON 摘要字段 `targetMethod`。
+- Req03 末行只检查 A/B/C/H/I/J，空模板从 R2 写入；SKU 写文本，价格/重量/长宽高完整解析为数值，
+  数值转换失败时保留原文本。Req03 按列批量写入，避开 PowerShell COM 逐格数值 setter 的类型错误。
+- Excel 运行期关闭 `ScreenUpdating` / `EnableEvents`，保存前或异常清理时恢复；未修改 Calculation。
+- 真实 `文件/03/A模板02.xls` → B 临时副本（Visible）：`rowsRead=306`、`rowsWritten=306`、
+  `rowsHiddenSkipped=66`、`existingLastRow=0`、`writeStartRow=2`，六组均按 header 命中。
+- 同一输出 `AppendExisting`：`existingLastRow=307`、`writeStartRow=311`，确认三行间隔；输出文件头仍为
+  OLE/CFB `.xls`（`D0 CF 11 E0 A1 B1 1A E1`），原 B md5 前后均为 `7422f104cd1332d7ca99ca005f08bf78`。
+- AGENTS 必跑主线验证：12/12 一致，退出码 0。`tests/verify_req02.ps1` 全部场景及原模板哈希通过，退出码 0。
+- T25 已完成，T26 开始；测试输出仅在 `%TEMP%`，未修改原始 Excel 素材。
+
+## 2026-09-12 Codex T26 GUI 与使用说明
+
+- `app.py` 新增“支线 03”页面，路径、导出范围、最后页面及成功输出状态沿用现有按 profile 隔离机制。
+- 选择 `XPY沃尔玛价格计算.xls` 时可提示切换到支线 03；支线 03 默认输出名继承目标扩展名 `.xls`，
+  保存对话框也默认 `.xls`，同时仍允许用户选择 `.xls/.xlsx/.xlsm`。
+- `README.md` 已补第三方案、六字段映射、追加/末行口径、数值类型和 `.xls` 默认输出说明。
+- `py -m py_compile app.py` 通过；现有 GUI/配置 unittest 43/43 通过。
+- T26 已完成，T27 开始补 Req03 专项与完整回归测试。
+
+## 2026-09-12 Codex T27 专项测试与回归
+
+- 新增带 UTF-8 BOM 的 `tests/make_req03_fixture.ps1`、`tests/verify_req03.ps1`、
+  `tests/verify_req03_real.ps1`，以及入库夹具 `tests/fixtures/A_req03_sample.xls`、
+  `tests/fixtures/B_req03_sample.xls`。
+- 合成专项覆盖 `Visible` / `All`、六字段逐格值与类型、格式和公式保留、首次写入、已有输出
+  `N+4` 追加、源/目标列字母兜底、歧义表头拒绝、合并写入区拒绝、Req03 `WriteMode Replace`
+  拒绝、原始 B 哈希不变，全部通过。
+- 真实专项覆盖 306 个可见源行、1836 个写入单元格、SKU 文本与五列数值类型、保护区域公式哈希、
+  `价格` / `运费表（公式数据，不动）` 工作表不变、原始 B 哈希不变和 OLE/CFB `.xls` 文件签名，
+  全部通过。
+- GUI/配置测试扩为 46/46 通过；真实 GUI 集成扩为 7/7 通过，包含 Req03 默认 `Visible`、
+  `.xls` 产物和摘要日志。
+- 主线必跑映射 12/12、Req02 全场景、追加、对齐、AutoFilter、372 行主线（4464 格）均通过。
+- `git diff --check` 退出码 0；四个新增/改动的 PowerShell 脚本均确认以 `EF BB BF` 开头。
+- T27 已完成，T28 进入 Claude 独立审查。审查范围为需求与验收逐项对照、接口边界、回归测试质量、
+  README/工作流完整性；发现接口冲突时先记录协调事项，不直接改 Codex 负责的实现文件。
+
+## 审查开始 2026-09-12 12:25（Claude，T28）
+
+## 2026-09-12 Claude T28 协调事项：Req03 非 `.xls` 输出会生成不可打开文件
+
+- 影响范围：`app.py`、`excel_mapper.ps1`、对应 GUI/映射器测试和 `README.md`，均属于 Codex 的
+  T25-T27 修改范围；Claude 不直接修改。
+- 复现：以 `tests/fixtures/A_req03_sample.xls`、`B_req03_sample.xls` 执行 `-Profile Req03`，把
+  `-OutputPath` 指定为临时目录下的 `chosen.xlsx`。映射器退出码为 0 且 JSON 报成功，但输出文件头仍为
+  OLE/CFB `D0 CF 11 E0 A1 B1 1A E1`；Excel 随后拒绝打开，提示文件格式或扩展名无效。
+- 根因：GUI 保存对话框仍允许 Req03 选择 `.xlsx`/`.xlsm`；映射器第 660 行以
+  `SaveAs($resolvedOutput)` 保存从二进制 `.xls` 打开的工作簿，却未指定转换目标 `FileFormat`。
+- 建议：按 R03-06 避免格式转换，Req03 GUI 只提供/接受 `.xls`，映射器也拒绝扩展名不是 `.xls` 的
+  Req03 输出并返回可读错误；另补 GUI 与命令行拒绝用例。若要支持转换，则必须显式传 `FileFormat` 并
+  对公式、格式、体积及可打开性做独立验证，成本和风险明显更高。
+- 严重度：高。默认输出路径安全，但用户通过当前界面可选择一个受支持外观的扩展名并收到成功提示，
+  实际产物无法用 Excel 打开。
+
+## 2026-09-12 Claude T28 独立审查结论
+
+### Findings（按严重度）
+
+1. **高：Req03 非 `.xls` 输出会被误报成功但无法打开。** 复现、根因与建议已记录在上一节。
+   该问题阻断 T28 通过；修复后需复跑 Req03 专项、GUI 扩展名用例和至少一次真实 `.xls` 输出。
+2. **中：header-first / fallback 测试仍有实现自证成分。** `A_req03_sample.xls` 和
+   `B_req03_sample.xls` 的六个字段都位于需求记录的 fallback 列；`verify_req03.ps1` 的表头优先断言
+   主要检查映射器返回的 `sourceMethod` / `targetMethod`，fallback 场景也只检查这两个摘要字段，未逐格
+   验证输出。建议增加“把表头和值移动到非 fallback 列”的表头优先用例，并对 fallback 产物逐格比对。
+   当前实现经静态审查确实先扫表头、无命中才回退，此项是防回归缺口，不是已观测实现错误。
+3. **交付前文档待办：** `AGENTS.md` 仍称全部验证只跑在合成样本且 `文件/03/` 未进入范围；
+   `docs/WORKFLOW.md` 的分支/推送说明仍固定为 Req02，且未登记 03 素材。T29 已计划更新 WORKFLOW，
+   还需把 `AGENTS.md` 加入允许修改模块并同步当前测试缺口，才能满足 WORKFLOW §8 DoD。
+
+### 需求与实现核对
+
+- R03-01：数据行按六个已解析映射任一非空准入；实现符合。合成 Visible/All 与真实 306/372 基线吻合。
+- R03-02：Req03 默认 `Visible`，三方案路径和 row mode 独立持久化；GUI/配置测试通过。
+- R03-03/R03-05：六字段逐列写值；SKU（含独立探针 `00123`）保持 `String`，其余五列完整数字文本写为
+  `Double`，不可解析值保留文本；真实 306 行、1836 格通过。
+- R03-04：Req03 末行只扫描已映射目标列的常量/公式，未受 Q/R 和 D/E/K:N 脚手架干扰；空目标 R2，
+  再次追加为 N+4，三行间隔未写入。
+- R03-06：默认输出名、保存对话框默认扩展名及真实产物均为二进制 `.xls`；但显式选择其他扩展名存在
+  Finding 1。
+- 目标表先精确按 `导入 单位转换` 名称选取；名称不存在时要求六字段完整集合且多命中报错。
+  目标列精确匹配，重复候选报错；源/目标字段均为 header-first、文档列字母 fallback。
+- 写入前统一检查目标范围公式/合并单元格；使用临时副本后 SaveAs，原 B 哈希不变。真实 B 保护公式区、
+  `价格` 和 `运费表（公式数据，不动）` 内容哈希通过；独立比较真实目标 A/B/C/H/I/J 的 R1:R307，
+  共 1842 格的数字格式、水平/垂直对齐、填充和字体属性，无差异。
+- Mainline 默认 profile、Req02 Append/Replace、JSON 既有字段和 GUI 主流程未发现回归。
+
+### 独立验证结果
+
+- `py -m py_compile app.py`：退出码 0。
+- `py -m unittest tests.test_path_settings tests.test_ui_layout tests.verify_path_settings -v`：46/46，退出码 0。
+- `powershell -File tests/verify_req03.ps1`：Visible/All、N+4、fallback、歧义、合并、Replace 拒绝及哈希
+  全通过，退出码 0。
+- `powershell -File tests/verify_req03_real.ps1`：306 行、1836 格、数值类型、保护区域和 `.xls` 通过，退出码 0。
+- AGENTS 必跑 `verify_mapping.ps1`：Mainline 12/12，退出码 0。
+- `tests/verify_req02.ps1`：Req02 全场景与原模板哈希通过，退出码 0。
+- `tests/verify_append.ps1`、`verify_alignment.ps1`、`verify_autofilter.ps1`：均退出码 0；对齐覆盖
+  12 个写入格、564 个表头格及 1022 个写入区外格。
+- `tests/verify_multirow.ps1 -Rows 372 -RowMode All`：372 行、4464 格通过，退出码 0。
+- `tests/verify_visible_rows.ps1`（先生成对应临时输出）：60 格连续输出通过，退出码 0。
+- `py -m unittest tests.verify_ui_integration -v`：7/7，退出码 0，含真实 Req03 GUI 流程。
+- 四个相关 `.ps1` 均为 BOM `EF BB BF`、PowerShell 语法错误 0；`git diff --check` 退出码 0。
+
+### 未覆盖
+
+- 未运行 `build.ps1` / `install.ps1`，未验证冻结产物中的第三方案；应由 T29 完成。
+- 未在 125%/150% 高 DPI、第二台电脑或其他 Excel 版本/位数验证。
+- 未穷举真实 B 全工作簿的所有视觉样式、对象、名称和外部引用；本轮真实样式抽查覆盖 1842 个直接相关格，
+  公式/非目标工作表内容由专项哈希覆盖。
+- 误以无参调用过一次 `verify_visible_rows.ps1`，因缺少其 mandatory 参数退出 1，不计为产品失败；随后用
+  正确 SourcePath/OutputPath/RowMode 完整复跑并退出 0。
+
+**结论：T28 暂不通过。** 默认 `.xls` 主流程及 01/02 回归可靠，但 Finding 1 会产生不可打开且被误报
+成功的用户文件。Codex 修复并补测后需由 Claude 做一次针对性复审。
+
+## 审查结束 2026-09-12 12:40（Claude，T28；未通过，待修复）
+
+## 2026-09-12 Codex 对 T28 意见的修复
+
+- 接受 Finding 1：`app.py` 的 Req03 保存对话框只提供 `.xls`；拖入/手输非 `.xls` 输出路径时，
+  在启动线程前给出可读提示。`excel_mapper.ps1` 在启动 Excel 前再次拒绝非 `.xls` 输出，防止绕过 GUI。
+- 接受 Finding 2：Req03 专项新增“六个源/目标表头和值均移至非兜底列”的逐格场景，证明表头优先；
+  原 fallback 场景也从仅检查 JSON 摘要加强为逐格比对输出。
+- `README.md` 已明确 Req03 只支持 `.xls` 输出；`AGENTS.md` 与 `docs/WORKFLOW.md` 已同步真实文件
+  验证现状、Req03 分支、素材哈希和当前提交/推送流程。
+- 修复后快速验证：`py -m unittest tests.test_ui_layout tests.test_path_settings tests.verify_path_settings -v`
+  为 48/48 通过；`tests/verify_req03.ps1` 的 Visible/All、N+4、fallback 逐格、移动列 header-first、
+  歧义、合并区、WriteMode 和非 `.xls` 拒绝全部通过；PowerShell 语法、BOM 和 `git diff --check` 通过。
+- T28 保持“审查中”，等待 Claude 针对性复审；T29 已开始整理文档与最终回归。
+
+## 本轮写入结束 2026-09-12 12:47（Codex，等待 T28 针对性复审）
+
+## 审查开始 2026-09-12 13:00（Claude，T28 针对性复审）
+
+## 2026-09-12 Claude T28 针对性复审结论
+
+### Findings（按严重度）
+
+**无新增阻断或回归问题。** 首轮三个事项均已关闭：
+
+1. 首轮高严重度的非 `.xls` 坏文件问题已关闭。GUI 手输路径在创建工作线程前拒绝，拖放时立即拒绝；
+   映射器在创建输出目录、解析 A/B 路径和启动 Excel COM 前拒绝。错误返回可读 JSON，且不产生目录或文件。
+2. 首轮中严重度的测试自证问题已关闭。fallback 场景现逐格验证六个输出值；header-first 场景把六个源字段
+   移到 E/AB/AF/BB/BC/BD、目标字段移到 U:Z 后再逐格验证，已不依赖需求中的 fallback 列位置。
+3. 文档待办已关闭。`README.md` 明确 Req03 仅支持 `.xls`；`AGENTS.md` 已更新真实业务文件验证状态；
+   `docs/WORKFLOW.md` 已更新当前分支、推送归属和 03 素材哈希；T29 允许修改范围已包含 `AGENTS.md`。
+
+### 针对性验证
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_req03.ps1`：退出码 0。Visible/All、N+4、
+  fallback 逐格、移动列 header-first 逐格、歧义表头、合并区、Req03 Replace 拒绝、非 `.xls` 拒绝和原始哈希
+  全部通过；非 `.xls` 用例确认未创建输出文件。
+- 独立前置顺序探针：用不存在的 A/B 和唯一、原本不存在的输出父目录调用 Req03，输出名为 `.xlsx`。
+  退出码 1，JSON `stage="检查输出路径"`、`errorLine=470`；父目录与输出文件均为 `false`。这证明拒绝发生在
+  `Resolve-Path`、`New-Item` 和 `New-Object -ComObject Excel.Application` 之前。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_req03_real.ps1`：退出码 0；真实模板
+  306 行、1836 格、数值类型、受保护内容、原模板哈希和 `.xls` 产物全部通过。
+- `py -m unittest tests.verify_ui_integration -v`：7/7，退出码 0；包含真实 Req03 GUI `.xls` 输出与 Visible 行语义。
+- 本轮开始前 Codex 修复后的快速门槛已复核记录：`py -m py_compile app.py` 退出码 0；
+  `py -m unittest tests.test_ui_layout tests.test_path_settings tests.verify_path_settings -v` 为 48/48；
+  `excel_mapper.ps1` 与 `tests/verify_req03.ps1` 均为 UTF-8 BOM 且 PowerShell 语法错误 0；
+  `git diff --check` 退出码 0。
+
+### 非阻断说明与未覆盖
+
+- Req03 保存对话框首个过滤项只有 `*.xls`，仍保留系统常见的“所有文件”项。用户经该项输入非 `.xls` 时，
+  路径可先显示在输入框，但点击开始后会在线程创建前被拒绝；未违反“GUI 拒绝其他输出扩展名”的验收标准。
+- 本次针对性复审未重跑完整 Mainline/Req02/对齐/AutoFilter/372 行矩阵；首轮 T28 已全部跑通，修复只涉及
+  Req03 输出扩展名前置校验、Req03 专项断言和文档，本轮以 48 个单元测试及 7 个真实 GUI 集成用例覆盖回归。
+- 仍未运行 `build.ps1` / `install.ps1`，未验证冻结产物中的第三方案；由 T29 完成。
+- 仍未覆盖 125%/150% 高 DPI、第二台电脑、其他 Excel 版本/位数，以及用户对最终业务产物的人工验收。
+
+**结论：T28 针对性复审通过。** 首轮高严重度缺陷和测试质量缺口均已修复并得到独立证据支持；
+未发现阻止 T29 整合、完整回归和整理提交的问题。
+
+## 审查结束 2026-09-12 13:00（Claude，T28 针对性复审；通过）
+
+## 2026-09-12 Codex T29 最终整合与交付验证
+
+- T28 针对性复审通过，无新增阻断或回归问题；T28、T29 均关闭。
+- 最终串行回归全部退出码 0：Mainline 必跑 12/12、Req02 全场景、Req03 合成专项、Req03 真实
+  306 行/1836 格、追加、对齐、AutoFilter、Mainline 372 行/4464 格、Python GUI/配置 48/48、
+  真实 GUI 集成 7/7。
+- `build.ps1` 成功生成 `dist/WalmartShelfAssistant/WalmartShelfAssistant.exe`，并确认
+  `_internal/excel_mapper.ps1` 存在。PyInstaller 对可选 `pythonwin/win32ui.pyd` 报告缺少
+  `mfc140u.dll` 警告，但构建成功，后续安装版启动存活检查通过，未构成运行阻断。
+- `install.ps1` 成功安装到 `%LOCALAPPDATA%/Programs/WalmartShelfAssistant/` 并更新桌面快捷方式；
+  安装版映射脚本 SHA-256 与仓库源码一致，exe 启动 5 秒未提前退出，随后关闭测试进程。
+- 原始 Req03 B 的 md5 仍为 `7422f104cd1332d7ca99ca005f08bf78`；四个相关 `.ps1` 保持 UTF-8 BOM，
+  PowerShell 语法检查和 `git diff --check` 通过。
+- 提交范围包含 Req03 实现、测试/夹具、非视频 `文件/03/` 素材和共享文档；明确排除用户原有的
+  `docs/VERIFICATION_REPORT.md` 与 `文件/02/项目需求文档02.docx` 未提交改动。两个 mp4 按 `.gitignore`
+  保持本地证据，不进入 Git。
+
+### 最终未覆盖
+
+- 125%/150% 高 DPI、第二台电脑、其他 Excel 版本/位数，以及用户对真实业务产物的人工验收。
+- 未穷举真实 B 的所有外部引用、定义名称和易失函数；直接相关 1842 格样式及保护内容/非目标表哈希已验证。
