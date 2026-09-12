@@ -922,3 +922,123 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
 - 黑框消失这件事**最终仍需人眼确认**：本轮的自动化断言证明的是
   「子进程的控制台窗口不可见」，无法替用户确认屏幕上确实没有闪过任何窗口。
 - 未在第二台电脑验证。
+
+## 16. 支线 03 映射（Req03，2026-09-12）
+
+### 16.1 复核对象
+
+本轮复核覆盖两个状态，**结论只对下列字节成立**：
+
+| 状态 | 提交 | 说明 |
+|---|---|---|
+| 交付 | `5e61098`（实现+测试+`文件/03` 资产）、`f8ac818`（HANDOFF 归档） | 支线 03 首次交付 |
+| 修复 | `83169ac`（15:01:31） | 处理第 16.6 节的两条复核建议 |
+
+- 复核时点：HEAD = `83169ac`，`app.py` = `e044fcfb44a8b09239f97059128c0b13`，
+  `excel_mapper.ps1` = `8905f72349b5557ccdcda6f478398db6`（起止两次取样一致）。
+- `83169ac` **已推送**：`git ls-remote origin main` = `83169ac10c5291c457ca61f5e37198b697e20229`。
+  本节的结论对应当前 GitHub 上的 `main`。
+- 输入逐字节固定：`文件/03/A模板02.xls` = blob `cad4c1dd…`、
+  `文件/03/XPY沃尔玛价格计算.xls` = blob `b788bd30…`（md5 `7422f104cd1332d7ca99ca005f08bf78`）。
+- 复核脚本写在 `%TEMP%\req03v\`（未入库），不复用 `tests/verify_req03*.ps1` 的断言。
+  源与目标先复制成 ASCII 路径，以避开中文命令行参数的编码问题。
+
+### 16.2 映射正确性（真实 A/B）
+
+26/26 通过。首批 `writeStartRow=2`、`rowsWritten=306`、`existingLastRow=0`、`skipped` 为空、
+`rowsHiddenSkipped=66`；六字段 306×6 = 1836 格与源列 D/AA/AE/AY/AZ/BA 逐格比对无错位。
+SKU 列为文本，其余五列 `Value2` 为数值。第二批 `existingLastRow=307`、`writeStartRow=311`，
+308–310 三行六个目标列全空，1836 格再次一致。
+
+`Q1:Q5220`、`R2:R5220`、`K2:N16601`、`D2:E16601` 公式逐格不变；`价格` 与
+`运费表（公式数据，不动）` 的 UsedRange 地址与内容哈希不变；写入区未产生公式；
+运行前后原始 B 的 md5 不变。
+
+### 16.3 表头优先 / 列字母兜底
+
+9/9 通过（改造 `tests/fixtures/B_req03_sample.xls` 得到的四份副本）：
+
+- 六个表头搬到 U:Z → 六条映射全部 `targetMethod=header`，数据落在 U:Z，A/B/C/H/I/J 保持空。
+- 六个表头改成不可识别文本 → 六条全部 `targetMethod=fallback-column`，数据落在 A/B/C/H/I/J。
+- 把目标表改名，使其与 `价格` 表同时含六个表头 → 报错拒绝、未产出文件、未任选其一。
+
+### 16.4 格式保留
+
+26/26 通过。`A1:J1`、`A2:J307`、`A308:J600` 三段的 `NumberFormat`、`Font.Name/Size/Bold`、
+`Interior.ColorIndex`、水平/垂直对齐、`WrapText`，以及 `ColumnWidth`/`RowHeight`，
+与 B 逐项哈希一致。
+
+### 16.5 `83169ac` 三条改动的定向复核
+
+**隐藏行计数（9/9 通过）。** 夹具源表：第 2 行 `111`、第 3 行 `222`（隐藏）、第 4 行空（隐藏）、
+第 5 行 `555`。
+
+| 模式 | rowsRead | rowsHiddenSkipped | rowsWritten | 写入顺序 |
+|---|---|---|---|---|
+| Visible | 2 | 1 | 2 | 源第 2 行 → 目标 2，源第 5 行 → 目标 3 |
+| All | 3 | 0 | 3 | 源 2、3、5 → 目标 2、3、4 |
+
+即：**有数据的隐藏行计入 `rowsHiddenSkipped` 并被跳过；空的隐藏行既不计数也不写入；
+写入行集合与顺序未变**（改动只影响计数口径）。
+
+**特殊数值（48 格中 47 格符合文档口径）。** 把每个样例以**文本**写入源表 A..BA 全列
+（故不依赖映射器对源列的判断）：`47`、`1E5`、`3.5` → 数值（`1E5` → 100000）；
+`0x10`、`NaN`、`Infinity`、`-Infinity` → 保留文本。唯一例外见第 16.6 节第 1 条。
+
+**关闭竞态（未独立复核）。** `app.py` 的 `_closing` / `_schedule_finish` 只由 Codex 自己的
+`tests.test_ui_layout` 用例覆盖；我复跑了该套件（51/51 通过），但**没有独立构造竞态**。
+
+### 16.6 非阻断观察
+
+1. **`1,234` 这类字符串会被 Excel 重新解析为数字，并改写目标单元格格式。**
+   源表以文本存 `1,234` 时，映射器判定「解析失败、保留文本」也确实是按文本写出的，
+   但**赋值给 General 格式的单元格时 Excel 会像手工输入一样再解析一遍**：结果存成数值 `1234`，
+   且该单元格的 `NumberFormat` 从 `G/通用格式` 被改成 `#,##0`。同类的还有 `$5` → `5`
+   （格式变成 `¥#,##0;[红色]¥-#,##0`）、`12%` → `0.12`（格式变成 `0%`）。
+   定向实验（标量赋值与 `Range.Value2 = <数组>` 两种写法结果相同）：同样的 .NET 字符串写进
+   `@`（文本）格式的单元格则保持文本、格式不变。
+
+   - **这是写入路径的既有行为，`83169ac` 未引入也未改变它**；五个数值目标列在模板里是
+     General 格式，所以任何被 Excel 认作数字的字符串都会走这条路。
+   - **现有真实文件未触发**：`fmt.ps1` 的 26 项格式哈希在 306 行真实运行后全部一致，
+     说明本轮真实数据里没有这类字符串。
+   - **修正我自己在第 16.1 节所述交付复核中的一处说法。** 那份记录（`fbe6de1` 的 HANDOFF）
+     写的是「`1,234` 与 `0x10` 被正确拒绝」。该说法对**判定函数**成立，但对**落盘结果**不成立
+     ——`1,234` 最终仍是数值。`0x10` 无此问题。
+   - 影响面：价格/重量/尺寸列里若出现带千分位、货币符号或百分号的**文本**，数值会被
+     重新解释（`12%` 语义改变），并覆盖单元格格式。现有业务文件不产生这种输入。
+
+2. `app.py` 的 `_profile_label_for_target` 按业务文件名 `xpy沃尔玛价格计算.xls` 提示支线 03。
+   只驱动「是否切换方案页」，不影响映射结果；文件名变动时是静默降级，不会写错数据。
+   与「按工作表名/表头名反查、不按文件名猜」的既定口径以及 `\01\`、`\02\` 两条按目录判定的
+   规则风格不一致。Codex 在 `83169ac` 中决定暂不改（改需引入 Excel COM 探测成本），复核认可。
+
+3. 映射摘要的 `targetField` 在两种命中方式下取的不是同一个来源：按表头命中时报告工作表里的
+   实际文本（如小写的 `sku(直接从sheet 1导入）`），回退到列字母时报告配置里的字段名
+   （如 `SKU(直接从sheet 1导入）`）。只影响摘要展示，不影响写入；`targetMethod` 已能区分二者。
+
+### 16.7 未覆盖
+
+- **未独立复核 `app.py` 的关闭竞态**，只复跑了 Codex 的用例（见 16.5）。
+- 未复跑 `build.ps1` / `install.ps1`，未复核打包版与安装版。
+- 未覆盖高 DPI、第二台电脑、其他 Excel 版本与位数。
+- 未做用户对最终业务产物的人工验收。
+- 未穷举真实 B 的全部样式、对象、名称与外部引用；只覆盖写入块、保护区域与非目标工作表。
+- 未覆盖主线/Req02 的批量 COM 写入改造（Codex 已列为本轮未处理项）。
+
+### 16.8 复跑方式
+
+```powershell
+# 本节 16.2 / 16.3 / 16.4 / 16.5 的独立脚本（未入库，位于 %TEMP%\req03v\）
+powershell -NoProfile -ExecutionPolicy Bypass -File verify.ps1     # 26 项，真实 A/B
+powershell -NoProfile -ExecutionPolicy Bypass -File boundary.ps1   # 9 项，表头/兜底/歧义
+powershell -NoProfile -ExecutionPolicy Bypass -File fmt.ps1        # 26 项，格式保留
+powershell -NoProfile -ExecutionPolicy Bypass -File hidden.ps1     # 9 项，隐藏行计数
+powershell -NoProfile -ExecutionPolicy Bypass -File edge.ps1       # 特殊数值
+powershell -NoProfile -ExecutionPolicy Bypass -File mech.ps1       # 16.6 第 1 条的机制实验
+```
+
+仓库内既有套件（回归，全部退出码 0）：`tests/verify_req03.ps1`、`tests/verify_req02.ps1`、
+`tests/verify_autofilter.ps1`（`rowsHiddenSkipped=4`）、`verify_mapping.ps1`（match=12 mismatch=0）、
+`tests/verify_multirow.ps1 -Rows 372`（4464 格）、`tests/verify_multirow.ps1 -Rows 5 -BlankAt 3`、
+`py -m unittest tests.test_path_settings tests.test_ui_layout tests.verify_path_settings`（51/51）。
