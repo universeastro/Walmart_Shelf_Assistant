@@ -36,6 +36,7 @@
 | T27 | Codex | 已完成 | `tests/`（Req03 逐格验证与 01/02 回归路径） | T25/T26；合成与真实模板专项、GUI 集成及 01/02 回归均通过 |
 | T28 | Claude | 已完成 | 独立需求/边界/回归/文档审查；结论写入 `HANDOFF.md` | 首轮缺陷已修复；针对性复审通过，无阻断项 |
 | T29 | Codex | 已完成 | 整合、完整回归、`AGENTS.md`、`PROJECT.md`、`TASKS.md`、`HANDOFF.md`、`docs/WORKFLOW.md`、提交 | T28 通过；回归、构建、安装与启动检查全部通过 |
+| T30 | Codex | 已完成 | `app.py`、`excel_mapper.ps1`、`tests/test_ui_layout.py`、`tests/verify_req03.ps1`、`tests/verify_autofilter.ps1`、`HANDOFF.md`、`docs/CODE_REVIEW.md` | 处理 Claude 交付后建议：关闭竞态、隐藏行计数、Req03 特殊数值边界；专项与回归通过 |
 
 ## 接口约定
 

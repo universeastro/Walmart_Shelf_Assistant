@@ -154,6 +154,7 @@ class ShelfAssistant(tk.Tk):
         self._activate_profile_vars(self._active_profile_label)
         self.status_var = tk.StringVar(value="请选择文件 A 和文件 B")
         self.running = False
+        self._closing = False
         self.completion_dialog = None
         self.last_output = None
         self._profile_last_outputs = {label: None for label in PROFILE_LABELS}
@@ -283,6 +284,11 @@ class ShelfAssistant(tk.Tk):
                     pass
 
     def destroy(self):
+        if self._closing:
+            return
+        self._closing = True
+        if hasattr(self, "progress"):
+            self.progress.stop()
         self._save_paths()
         super().destroy()
 
@@ -722,9 +728,19 @@ class ShelfAssistant(tk.Tk):
             )
             raw = completed.stdout.strip().splitlines()
             payload = json.loads(raw[-1]) if raw else {"success": False, "message": completed.stderr.strip()}
-            self.after(0, self._finish, payload, completed.returncode, output_mode, output_exists)
+            self._schedule_finish(payload, completed.returncode, output_mode, output_exists)
         except Exception as exc:  # pragma: no cover - UI error path
-            self.after(0, self._finish, {"success": False, "message": str(exc)}, 1, output_mode, output_exists)
+            self._schedule_finish({"success": False, "message": str(exc)}, 1, output_mode, output_exists)
+
+    def _schedule_finish(self, payload, returncode, output_mode, output_exists):
+        if self._closing:
+            return
+        try:
+            self.after(0, self._finish, payload, returncode, output_mode, output_exists)
+        except (tk.TclError, RuntimeError):
+            # The user may close the window while the worker is still running.
+            # There is no UI left to restore in that case.
+            return
 
     def _finish(self, payload, returncode, output_mode=None, output_exists=True):
         self.running = False

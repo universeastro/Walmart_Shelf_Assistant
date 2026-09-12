@@ -1208,3 +1208,36 @@ tests.verify_path_settings` 48/48；`tests.verify_ui_integration` 7/7（含真�
 - 未穷举真实 B 的全部样式、对象、名称与外部引用；只覆盖写入块、保护区域与非目标工作表。
 
 **结论：无阻断项。** 提交的字节与 `PROJECT.md` 验收标准一致，01/02 无回归。
+
+## 2026-09-12 Codex 处理 Claude 交付后建议（T30）
+
+用户要求继续处理 Claude 的建议。本轮只落地不改变业务映射口径的健壮性修复：
+
+- `excel_mapper.ps1` 的 Req03 数值转换现在拒绝 `NaN`、`Infinity`、`-Infinity`，并按原文本写入；
+  有限数值（含指数形式）仍转换为数值。
+- 隐藏行计数移到数据行判定之后，`rowsHiddenSkipped` 不再包含 AutoFilter/格式造成的纯空行。
+- `app.py` 增加 `_closing` 关闭状态；关闭窗口时停止进度条，后台线程完成回调在窗口关闭或 Tk
+  解释器销毁后安全忽略；`destroy()` 可重复调用。
+- 新增 UI 关闭竞态测试、Req03 特殊数值测试，并更新 AutoFilter 测试精确断言隐藏数据行计数。
+
+### 本轮未处理的建议
+
+- `app.py` 按 `xpy沃尔玛价格计算.xls` 文件名提示 Req03：目前只影响自动切换页面，不影响映射结果；
+  改为读取工作簿表头会引入 Excel COM 探测成本，暂不改变。
+- 源表多行表头探测：当前业务文件的表头行已确定，暂不扩大探测规则。
+- 全部 profile 的批量 COM 写入：Req03 已按列批量写入，主线/Req02 的全面改造需重新核验格式与公式，
+  不在本轮低风险修复范围。
+
+### T30 验证记录
+
+- `py -m unittest tests.test_ui_layout -v`：新增关闭竞态用例与既有 UI 用例通过。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_req03.ps1`：Req03 合成专项通过，
+  含特殊数值边界、表头优先/兜底、追加、公式和原模板保护。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify_autofilter.ps1`：AutoFilter 隐藏行及
+  `rowsHiddenSkipped` 精确计数通过。
+- `git diff --check`：通过。
+
+### 未覆盖
+
+- 高 DPI、第二台电脑、其他 Excel 版本/位数和真实业务产物人工验收仍未覆盖。
+- 本轮未重跑完整构建/安装流程；未处理的三项建议见上文。

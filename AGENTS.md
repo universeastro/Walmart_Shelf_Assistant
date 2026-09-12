@@ -85,7 +85,8 @@ Excel 会合并条件相同的相邻列规则（48 条 → 43 条），覆盖范
   372 行无性能回归。见验证报告第 10 节。
 - ~~AutoFilter 筛选是否走同一条隐藏路径未测~~ → **已补齐**：实测确认
   AutoFilter 筛掉的行同样报告 `Hidden = $true`，与手工隐藏殊途同归。
-  见 `tests/verify_autofilter.ps1` 与验证报告 10.9。
+  现同时断言 `rowsHiddenSkipped` 只统计含数据的隐藏行，不包含格式占位空行；见
+  `tests/verify_autofilter.ps1` 与验证报告 10.9。
 - ~~界面从没真跑过一次映射~~ → **已补齐**：`tests/verify_ui_integration.py`
   真起 Excel 走完整流程，12.5 秒跑通，并用「把 MAPPER 指向不存在的脚本」
   证伪过（确实会失败，不是空转）。见验证报告第 13 节。
@@ -98,6 +99,9 @@ Excel 会合并条件相同的相邻列规则（48 条 → 43 条），覆盖范
   新增的首次新建输出状态也已有 UI 回归用例。
 - `文件/03/` 已纳入 Req03 验收范围；模板、需求文档与视频哈希见 `docs/WORKFLOW.md` §9。
   `文件/02/项目需求文档02.docx` 的未提交修改仍属用户改动，不纳入 Req03 提交。
+- Req03 特殊数值边界（`NaN`、`Infinity`、十六进制文本及指数形式）已由
+  `tests/verify_req03.ps1` 覆盖；窗口关闭时的进度条停止与后台回调保护由
+  `tests/test_ui_layout.py` 覆盖。
 
 ## 两个必须知道的实测结论
 

@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import tkinter as tk
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -65,6 +66,23 @@ class UILayoutTests(unittest.TestCase):
         for control in self.window.all_file_controls + self.window.row_mode_buttons + [self.window.run_button]:
             self.assertNotIn("disabled", control.state())
         self.assertIn("readonly", self.window.profile_combo.state())
+
+    def test_worker_finish_is_ignored_after_window_close(self):
+        self.window._closing = True
+        with patch.object(self.window, "after") as after:
+            self.window._schedule_finish({"success": True}, 0, "Replace", False)
+        after.assert_not_called()
+
+    def test_worker_finish_tolerates_destroyed_tk_interpreter(self):
+        with patch.object(self.window, "after", side_effect=tk.TclError("destroyed")):
+            self.window._schedule_finish({"success": False}, 1, "Replace", False)
+
+    def test_destroy_stops_progress_and_is_idempotent(self):
+        with patch.object(self.window.progress, "stop") as stop:
+            self.window.destroy()
+            stop.assert_called_once()
+        self.assertTrue(self.window._closing)
+        self.window.destroy()
 
     def test_browse_uses_previous_directory_and_output_name(self):
         output = Path(self.temp.name) / "new.xlsx"

@@ -187,6 +187,53 @@ try {
     Assert-Workbook $fallbackOutput Visible 2 2 $fallbackSource $fallbackTarget
     Write-Output 'PASS: Req03 source and target column-letter fallback with cell-by-cell values.'
 
+    $numericSource = Join-Path $work 'numeric-source.xls'
+    Copy-Item -LiteralPath $source -Destination $numericSource
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $excel.DisplayAlerts = $false
+    $sourceWb = $excel.Workbooks.Open($numericSource, 0, $false)
+    $sourceSheet = $sourceWb.Worksheets.Item(1)
+    $numericColumns = @(4, 27, 31, 51, 52, 53)
+    $numericValues = @('SKU-SPECIAL', 'NaN', 'Infinity', '1E5', '-Infinity', '0x10')
+    for ($index = 0; $index -lt $numericColumns.Count; $index++) {
+        $sourceSheet.Cells.Item(6, $numericColumns[$index]).Value2 = $numericValues[$index]
+    }
+    $sourceWb.Save()
+    $sourceWb.Close($false)
+    $sourceWb = $null
+    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($sourceSheet)
+    $sourceSheet = $null
+    $excel.Quit()
+    $excel = $null
+
+    $numericOutput = Join-Path $work 'numeric-output.xls'
+    $numeric = Invoke-Mapper $numericSource $target $numericOutput Visible
+    if ($numeric.rowsWritten -ne 3) { throw "Req03 特殊数值夹具行数错误: $($numeric.rowsWritten)" }
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $excel.DisplayAlerts = $false
+    $targetWb = $excel.Workbooks.Open($numericOutput, 0, $true)
+    try {
+        $numericSheet = $targetWb.Worksheets.Item('导入 单位转换')
+        if ([string]$numericSheet.Cells.Item(4, 2).Value2 -cne 'NaN' -or
+            [string]$numericSheet.Cells.Item(4, 3).Value2 -cne 'Infinity' -or
+            $numericSheet.Cells.Item(4, 8).Value2 -isnot [double] -or
+            [double]$numericSheet.Cells.Item(4, 8).Value2 -ne 100000 -or
+            [string]$numericSheet.Cells.Item(4, 9).Value2 -cne '-Infinity' -or
+            [string]$numericSheet.Cells.Item(4, 10).Value2 -cne '0x10') {
+            throw 'Req03 特殊数值必须拒绝非有限值/十六进制文本，并保留完整指数数值。'
+        }
+    } finally {
+        $targetWb.Close($false)
+        $targetWb = $null
+        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($numericSheet)
+        $numericSheet = $null
+        $excel.Quit()
+        $excel = $null
+    }
+    Write-Output 'PASS: Req03 numeric conversion rejects NaN/Infinity/hex text and preserves valid exponent values.'
+
     $movedSource = Join-Path $work 'moved-source.xls'
     $movedTarget = Join-Path $work 'moved-target.xls'
     Copy-Item -LiteralPath $source -Destination $movedSource
@@ -204,7 +251,11 @@ try {
     for ($index = 0; $index -lt $movedSourceLetters.Count; $index++) {
         $fromRange = $sourceSheet.Range("$($originalSourceLetters[$index])1:$($originalSourceLetters[$index])5")
         $toRange = $sourceSheet.Range("$($movedSourceLetters[$index])1:$($movedSourceLetters[$index])5")
-        try { $toRange.Value2 = $fromRange.Value2 }
+        try {
+            for ($row = 1; $row -le 5; $row++) {
+                $toRange.Cells.Item($row, 1).Value2 = $fromRange.Cells.Item($row, 1).Value2
+            }
+        }
         finally {
             [void][Runtime.InteropServices.Marshal]::ReleaseComObject($fromRange)
             [void][Runtime.InteropServices.Marshal]::ReleaseComObject($toRange)

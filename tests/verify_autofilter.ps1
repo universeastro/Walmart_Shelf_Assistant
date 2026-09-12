@@ -19,10 +19,10 @@ $ErrorActionPreference = 'Stop'
 # Confirmed here (2026-09-10): AutoFilter-hidden rows DO report Hidden=$true,
 # so both paths converge on the same check in excel_mapper.ps1.
 #
-# Known cosmetic side effect, asserted NOTHING about below: UsedRange can
-# extend past the last data row (formatting only). Those trailing empty rows
-# are hidden by the filter too and inflate `rowsHiddenSkipped` - the counter
-# reports 6 where only 4 rows held data. Output is unaffected.
+# UsedRange can extend past the last data row (formatting only). Those trailing
+# empty rows are hidden by the filter too, but they must not inflate
+# `rowsHiddenSkipped`: the counter is about hidden rows that contained mapped
+# data, not formatting-only rows.
 
 if (-not $Target) { $Target = Join-Path (Split-Path $PSScriptRoot -Parent) '文件\01\B模板01.xlsx' }
 
@@ -99,10 +99,13 @@ if ($null -eq $json) {
 Write-Output ("   exit=$exitCode success=$($json.success)")
 Write-Output ("   rowsRead=$($json.rowsRead) rowsWritten=$($json.rowsWritten) rowsHiddenSkipped=$($json.rowsHiddenSkipped)")
 
-# Exactly one row survives the filter. rowsHiddenSkipped is deliberately NOT
-# asserted: it also counts trailing empty rows inside UsedRange (see header).
+# Exactly one row survives the filter, and the other data rows are counted as
+# hidden. Formatting-only rows beyond the data range must not affect the count.
 if ($json.rowsRead -ne 1) { $failures.Add("rowsRead: expected 1, got $($json.rowsRead)") }
 if ($json.rowsWritten -ne 1) { $failures.Add("rowsWritten: expected 1, got $($json.rowsWritten)") }
+if ($json.rowsHiddenSkipped -ne ($Rows - 1)) {
+    $failures.Add("rowsHiddenSkipped: expected $($Rows - 1), got $($json.rowsHiddenSkipped)")
+}
 
 Write-Output '== verify the surviving row =='
 $mapping = $json.mappings | Where-Object { $_.sourceColumn -eq 'N' } | Select-Object -First 1

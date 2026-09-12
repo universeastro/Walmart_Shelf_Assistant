@@ -406,7 +406,9 @@ function Convert-Req03Value([object]$Value, [string]$ValueType) {
         [Globalization.CultureInfo]::InvariantCulture,
         [ref]$number
     )) {
-        return $number
+        if (-not [double]::IsNaN($number) -and -not [double]::IsInfinity($number)) {
+            return $number
+        }
     }
     return $Value
 }
@@ -579,16 +581,17 @@ try {
         $sourceRowRange = $sourceWs.Rows.Item($row)
         try { $isHidden = [bool]$sourceRowRange.Hidden }
         finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($sourceRowRange) }
-        if ($isHidden -and $RowMode -eq 'Visible') {
-            $result.rowsHiddenSkipped++
-            continue
-        }
         $hasValue = $false
         foreach ($mapping in $resolvedMappings) {
             $value = Get-CellValue $sourceWs $row $mapping.Source.Column
             if ($null -ne $value -and [string]$value -ne '') { $hasValue = $true; break }
         }
-        if ($hasValue) { $dataRows.Add($row) }
+        if (-not $hasValue) { continue }
+        if ($isHidden -and $RowMode -eq 'Visible') {
+            $result.rowsHiddenSkipped++
+            continue
+        }
+        $dataRows.Add($row)
     }
     $result.rowsRead = $dataRows.Count
 

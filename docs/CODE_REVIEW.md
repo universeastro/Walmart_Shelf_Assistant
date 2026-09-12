@@ -33,9 +33,9 @@ verify_mapping.ps1 -SourcePath tests/fixtures/A_sample.xls -TargetPath 文件/B�
 | 6. COM 泄漏 | ✅ 已修 | 新增 `Set-CellValue`，`Get-CellValue` / `Set-CellValue` 均释放中间 RCW |
 | 7. 只读打开 | ✅ 已修（**方案后被更换**） | `e7b1fcc` 改为「复制到输出目录的 GUID 临时文件 → 可写打开 → `SaveAs` → `finally` 删除」。见下方说明 |
 | 8. `output` 字段与实际落盘路径不符 | ✅ 已修（`a854441`） | 无扩展名时按模板扩展名补齐；`SaveAs` 后从 `$targetWb.FullName` 回读真实路径。已实测确认输出无扩展名时 `output` 报告 `.xlsx` 且文件确实生成在该处 |
-| 9. `rowsHiddenSkipped` 多计 | ⬜ 未处理 | 只影响日志数字，输出正确 |
+| 9. `rowsHiddenSkipped` 多计 | ✅ 已修（T30） | 先判定映射字段是否有值，再统计隐藏数据行；AutoFilter 回归现已断言计数 |
 | 10. 空值单元格也设对齐 | ⬜ 未处理 | 看不出差别，不建议现在动 |
-| 11. 关窗口时不收尾 | ⬜ 未处理 | 仅影响关闭路径 |
+| 11. 关窗口时不收尾 | ✅ 已修（T30） | 关闭时停止进度条；后台线程回调对关闭/销毁异常可安全忽略 |
 | 12. 弹出 PowerShell 黑框 | ✅ 已修（`3ffc56d1`，**已用真实代码路径复验**） | `_run_worker` 的 `subprocess.run` 加 `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)`，仅此一处。复验见下 |
 
 ### 复验补充说明
@@ -629,3 +629,13 @@ Codex 采用了修法，并写成更保守的 `getattr(subprocess, "CREATE_NO_WI
 | 低 | 10. 空值单元格也设对齐 | 看不出差别，不建议现在动 |
 | 低 | 11. 关窗口时不收尾 | 仅影响关闭路径；但兜底代码自己是假的，值得顺手加固 |
 | ~~中~~ | ~~12. 弹出 PowerShell 黑框~~ | ✅ **已修复并复验**（`3ffc56d1`） |
+
+## 2026-09-12 交付后建议处理（T30）
+
+- `Convert-Req03Value` 仍允许指数形式（例如 `1E5`），但现在明确拒绝
+  `NaN`、`Infinity` 和 `-Infinity`，这些值会按原文本写入；新增 Req03 专项夹具验证。
+- `rowsHiddenSkipped` 只统计含映射数据的隐藏行，格式占位空行不再计入；输出数据行选择与写入位置保持不变。
+- `ShelfAssistant` 关闭时停止进度条，并通过 `_closing` 与 `_schedule_finish` 防止工作线程
+  在 Tk 解释器销毁后回调；新增 UI 单元测试覆盖关闭、重复关闭和 Tcl 异常。
+- 仍未处理：按工作簿内容自动识别 Req03（当前文件名提示仅影响页面切换）、源表表头行数探测、
+  全部 profile 的批量 COM 写入。这些项目分别需要更重的 Excel 探测/性能改造或业务口径确认。
