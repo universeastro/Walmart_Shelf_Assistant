@@ -45,6 +45,8 @@ REQ02_SAMPLE = REPO / "文件" / "02" / "A模板02.xls"
 REQ02_TEMPLATE = REPO / "文件" / "02" / "B模板.xls"
 REQ02_FIXTURE_SOURCE = REPO / "tests" / "fixtures" / "A_req02_sample.xlsx"
 REQ02_FIXTURE_TARGET = REPO / "tests" / "fixtures" / "B_req02_sample.xlsx"
+REQ03_SOURCE = REPO / "文件" / "03" / "A模板02.xls"
+REQ03_TARGET = REPO / "文件" / "03" / "XPY沃尔玛价格计算.xls"
 
 
 class UIIntegrationTests(unittest.TestCase):
@@ -191,6 +193,30 @@ class UIIntegrationTests(unittest.TestCase):
         self.assertIn("输出处理：在现有输出中继续写入", log_text)
         self.assertIn("本批次从第 17 行开始写入", log_text)
         self.assertIn("已有数据末行：13", log_text)
+
+    def test_req03_end_to_end_preserves_xls_and_uses_visible_rows(self):
+        if not REQ03_SOURCE.is_file() or not REQ03_TARGET.is_file():
+            self.skipTest(f"缺少 Req03 真实文件: {REQ03_SOURCE} / {REQ03_TARGET}")
+        output = Path(self.temporary.name) / "req03-out.xls"
+        with patch("app.messagebox.askyesno", return_value=True):
+            self.window._handle_drop_paths([str(REQ03_TARGET)], self.window.target_var, "target")
+        self.window._handle_drop_paths([str(REQ03_SOURCE)], self.window.source_var, "source")
+        self.window.output_var.set(str(output))
+        self.assertEqual(self.window.profile_var.get(), "支线 03")
+        self.assertEqual(self.window.row_mode_var.get(), "Visible")
+
+        with patch("app.CompletionDialog"):
+            self.window.run_mapping()
+            outcome = self._mainloop_until(lambda: not self.window.running, 180)
+            self.assertFalse(outcome.get("timeout", False), "Req03 映射未在 180 秒内结束")
+
+        self.assertTrue(output.is_file(), f"未生成 Req03 输出文件: {output}")
+        self.assertEqual(output.read_bytes()[:8], bytes.fromhex("D0 CF 11 E0 A1 B1 1A E1"))
+        self.assertIn("306", self.window.summary_var.get())
+        log_text = self.window.log.get("1.0", "end")
+        self.assertIn("映射方案：支线 03", log_text)
+        self.assertIn("本批次从第 2 行开始写入", log_text)
+        self.assertIn("跳过隐藏行：66", log_text)
 
     # 2 -------------------------------------------------------------------
     def test_validation_failure_leaves_no_spinner(self):

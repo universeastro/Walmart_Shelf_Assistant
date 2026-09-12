@@ -191,6 +191,33 @@ class PathSettingsTests(unittest.TestCase):
         self.switch(window, "主线 01")
         self.assertEqual(window.row_mode_var.get(), "Visible")
 
+    def test_req03_paths_and_row_mode_are_independent_and_persisted(self):
+        source = Path(self.temporary.name) / "req03-source.xls"
+        target = Path(self.temporary.name) / "XPY沃尔玛价格计算.xls"
+        source.touch()
+        target.touch()
+        req03 = {
+            "source": str(source),
+            "target": str(target),
+            "output": str(Path(self.temporary.name) / "req03-output.xls"),
+        }
+
+        window = self.open_app()
+        self.switch(window, "支线 03")
+        for key, value in req03.items():
+            window._path_vars[key].set(value)
+        window.row_mode_var.set("All")
+        self.switch(window, "主线 01")
+        self.assertEqual(window.source_var.get(), "")
+        self.switch(window, "支线 03")
+        self.assertEqual({key: var.get() for key, var in window._path_vars.items()}, req03)
+        window.destroy()
+
+        restored = self.open_app()
+        self.assertEqual(restored.profile_var.get(), "支线 03")
+        self.assertEqual({key: var.get() for key, var in restored._path_vars.items()}, req03)
+        self.assertEqual(restored.row_mode_var.get(), "All")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,7 +18,7 @@ class UILayoutTests(unittest.TestCase):
         self.window.update()
 
     def test_controls_fit_at_supported_sizes(self):
-        for profile in ("主线 01", "支线 02"):
+        for profile in ("主线 01", "支线 02", "支线 03"):
             self.window.profile_var.set(profile)
             for size in ("720x620", "880x680", "1100x800"):
                 with self.subTest(profile=profile, size=size):
@@ -331,6 +331,61 @@ class UILayoutTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertEqual(command[command.index("-Profile") + 1], "Req02")
         self.assertEqual(command[command.index("-OutputMode") + 1], "AppendExisting")
+
+    def test_req03_target_switches_profile_and_defaults_to_xls_output(self):
+        target = Path(self.temp.name) / "XPY沃尔玛价格计算.xls"
+        target.touch()
+        with patch("app.messagebox.askyesno", return_value=True) as confirm:
+            self.window._handle_drop_paths([str(target)], self.window.target_var, "target")
+        confirm.assert_called_once()
+        self.assertEqual(self.window.profile_var.get(), "支线 03")
+        self.assertEqual(self.window.target_var.get(), str(target))
+        self.assertEqual(Path(self.window.output_var.get()).name, "XPY沃尔玛价格计算_已填充.xls")
+
+    def test_req03_save_dialog_and_worker_use_req03_contract(self):
+        self.window.profile_var.set("支线 03")
+        target = Path(self.temp.name) / "renamed-target.xlsx"
+        target.touch()
+        self.window.target_var.set(str(target))
+        with patch("app.filedialog.asksaveasfilename", return_value="") as choose:
+            self.window._choose_output()
+        self.assertEqual(choose.call_args.kwargs["defaultextension"], ".xls")
+        self.assertEqual(choose.call_args.kwargs["filetypes"][0][1], "*.xls")
+        self.assertNotIn("*.xlsx", str(choose.call_args.kwargs["filetypes"]))
+
+        completed = SimpleNamespace(stdout='{"success":true}', stderr="", returncode=0)
+        with patch("app.subprocess.run", return_value=completed) as run, patch.object(self.window, "after"):
+            self.window._run_worker(
+                Path("a.xls"), target, Path("out.xls"), "Visible", "Req03", "Replace"
+            )
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("-Profile") + 1], "Req03")
+        self.assertEqual(command[command.index("-OutputMode") + 1], "Replace")
+
+    def test_req03_rejects_non_xls_output_before_starting(self):
+        self.window.profile_var.set("支线 03")
+        for name, variable in (("a.xls", self.window.source_var), ("b.xls", self.window.target_var)):
+            path = Path(self.temp.name) / name
+            path.touch()
+            variable.set(str(path))
+        self.window.output_var.set(str(Path(self.temp.name) / "bad-output.xlsx"))
+
+        with patch("app.messagebox.showwarning") as warning, patch("app.threading.Thread") as worker:
+            self.window.run_mapping()
+
+        warning.assert_called_once()
+        self.assertIn(".xls", warning.call_args.args[1])
+        worker.assert_not_called()
+        self.assertFalse(self.window.running)
+
+    def test_req03_rejects_non_xls_output_drop(self):
+        self.window.profile_var.set("支线 03")
+        output = Path(self.temp.name) / "bad-output.xlsm"
+        with patch("app.messagebox.showwarning") as warning:
+            result = self.window._handle_drop_paths(str(output), self.window.output_var, "output")
+        self.assertEqual(result, "break")
+        self.assertEqual(self.window.output_var.get(), "")
+        warning.assert_called_once()
 
 
 if __name__ == "__main__":

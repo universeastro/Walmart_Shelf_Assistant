@@ -5,7 +5,7 @@
     [string]$TargetPath,
     [Parameter(Mandatory = $true)]
     [string]$OutputPath,
-    [ValidateSet('Mainline', 'Req02')]
+    [ValidateSet('Mainline', 'Req02', 'Req03')]
     [string]$Profile = 'Mainline',
     [ValidateSet('Append', 'Replace')]
     [string]$WriteMode = 'Append',
@@ -35,6 +35,14 @@ function Get-ColumnLetter([int]$Number) {
         $Number = [math]::Floor($Number / 26)
     }
     return $result
+}
+
+function Get-ColumnNumber([string]$Letter) {
+    $number = 0
+    foreach ($char in $Letter.ToUpperInvariant().ToCharArray()) {
+        $number = $number * 26 + ([int][char]$char - 64)
+    }
+    return $number
 }
 
 function Get-CellText($Worksheet, [int]$Row, [int]$Column) {
@@ -80,16 +88,57 @@ function Find-SourceColumn($Worksheet, [string[]]$HeaderNames, [string]$Fallback
         }
     }
     if ($FallbackLetter) {
-        $number = 0
-        foreach ($char in $FallbackLetter.ToUpperInvariant().ToCharArray()) {
-            $number = $number * 26 + ([int][char]$char - 64)
-        }
+        $number = Get-ColumnNumber $FallbackLetter
         return [pscustomobject]@{ Column = $number; Header = $FallbackLetter.ToUpperInvariant(); Method = 'fallback-column' }
     }
     return $null
 }
 
 function Find-TargetSheet($Workbook, [string]$MappingProfile = 'Mainline') {
+    if ($MappingProfile -eq 'Req03') {
+        $named = $null
+        try { $named = $Workbook.Worksheets.Item('导入 单位转换') } catch {}
+        if ($null -ne $named) {
+            if ($named.Visible -ne -1) {
+                [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($named)
+                throw '目标工作表“导入 单位转换”不是可见工作表，为保护模板已停止写入。'
+            }
+            return $named
+        }
+
+        $required = @(
+            'sku(直接从sheet 1导入）', 'sku价(￥)', '重量(g)', '长', '宽', '高'
+        )
+        $matches = New-Object System.Collections.Generic.List[object]
+        foreach ($worksheet in $Workbook.Worksheets) {
+            if ($worksheet.Visible -ne -1) { continue }
+            $used = $worksheet.UsedRange
+            try {
+                $maxRow = [math]::Min(10, $used.Row + $used.Rows.Count - 1)
+                $maxColumn = [math]::Min(255, $used.Column + $used.Columns.Count - 1)
+                for ($row = $used.Row; $row -le $maxRow; $row++) {
+                    $found = @{}
+                    for ($column = $used.Column; $column -le $maxColumn; $column++) {
+                        $text = Normalize-Text (Get-CellText $worksheet $row $column)
+                        if ($required -contains $text) { $found[$text] = $true }
+                    }
+                    if ($found.Count -eq $required.Count) {
+                        $matches.Add($worksheet)
+                        break
+                    }
+                }
+            } finally {
+                [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($used)
+            }
+        }
+        if ($matches.Count -eq 0) { throw '未找到工作表“导入 单位转换”，也未找到包含六个 Req03 目标字段的工作表。' }
+        if ($matches.Count -gt 1) {
+            $names = ($matches | ForEach-Object { $_.Name }) -join ', '
+            throw "多个工作表同时包含六个 Req03 目标字段，无法安全选择：$names"
+        }
+        return $matches[0]
+    }
+
     if ($MappingProfile -eq 'Req02') {
         $matches = New-Object System.Collections.Generic.List[object]
         foreach ($worksheet in $Workbook.Worksheets) {
@@ -161,6 +210,8 @@ function Find-TargetColumns($Worksheet, [string]$MappingProfile = 'Mainline') {
     $headerRows = New-Object System.Collections.Generic.List[int]
     $descriptionRow = $null
     $leafHeaderRow = $null
+    $bestReq03HeaderRow = $null
+    $bestReq03HeaderCount = -1
 
     # Find the row containing the leaf field names for the selected profile.
     # Rows above it are the hierarchical group headers. Rows below it contain
@@ -169,14 +220,24 @@ function Find-TargetColumns($Worksheet, [string]$MappingProfile = 'Mainline') {
         $skuFound = $false
         $productNameFound = $false
         $platformSkuFound = $false
+        $req03Headers = @{}
         for ($column = $used.Column; $column -le $maxColumn; $column++) {
             $text = Normalize-Text (Get-CellText $Worksheet $row $column)
             if ($text -eq 'sku') { $skuFound = $true }
             if ($text -eq 'product name') { $productNameFound = $true }
             if ($text -eq '平台sku') { $platformSkuFound = $true }
+            if (@('sku(直接从sheet 1导入）', 'sku价(￥)', '重量(g)', '长', '宽', '高') -contains $text) {
+                $req03Headers[$text] = $true
+            }
+        }
+        if ($MappingProfile -eq 'Req03' -and $req03Headers.Count -gt $bestReq03HeaderCount) {
+            $bestReq03HeaderRow = $row
+            $bestReq03HeaderCount = $req03Headers.Count
         }
         $rowMatches = if ($MappingProfile -eq 'Req02') {
             $skuFound -and $platformSkuFound
+        } elseif ($MappingProfile -eq 'Req03') {
+            $req03Headers.Count -eq 6
         } else {
             $skuFound -and $productNameFound
         }
@@ -184,6 +245,9 @@ function Find-TargetColumns($Worksheet, [string]$MappingProfile = 'Mainline') {
             $leafHeaderRow = $row
             break
         }
+    }
+    if ($MappingProfile -eq 'Req03' -and $null -eq $leafHeaderRow) {
+        $leafHeaderRow = if ($null -ne $bestReq03HeaderRow) { $bestReq03HeaderRow } else { $used.Row }
     }
     if ($null -eq $leafHeaderRow) { throw '目标工作表没有可识别的字段表头。' }
     for ($row = $used.Row; $row -le $leafHeaderRow; $row++) {
@@ -224,6 +288,7 @@ function Find-TargetColumns($Worksheet, [string]$MappingProfile = 'Mainline') {
                 Letter = Get-ColumnLetter $column
                 Path = ($parts -join ' > ')
                 Leaf = $parts[$parts.Count - 1]
+                Method = 'header'
             }
         }
     }
@@ -231,7 +296,7 @@ function Find-TargetColumns($Worksheet, [string]$MappingProfile = 'Mainline') {
     return [pscustomobject]@{ Columns = $columns; HeaderRows = $headerRows; DataStart = $dataStart }
 }
 
-function Find-TargetColumn($TargetColumns, [string[]]$LeafNames, [string[]]$PathHints = @()) {
+function Find-TargetColumn($TargetColumns, [string[]]$LeafNames, [string[]]$PathHints = @(), [string]$FallbackLetter = '') {
     $wanted = @($LeafNames | ForEach-Object { Normalize-Text $_ } | Where-Object { $_ })
     $candidates = @($TargetColumns.GetEnumerator() | Where-Object { $wanted -contains $_.Value.Leaf })
     if ($candidates.Count -eq 1) { return $candidates[0].Value }
@@ -248,6 +313,16 @@ function Find-TargetColumn($TargetColumns, [string[]]$LeafNames, [string[]]$Path
     if ($candidates.Count -gt 1) {
         $locations = ($candidates | ForEach-Object { $_.Value.Letter + ':' + $_.Value.Path }) -join '; '
         throw "目标字段名称存在多个候选列，无法安全匹配 [$($LeafNames -join ', ')]: $locations"
+    }
+    if ($FallbackLetter) {
+        $number = Get-ColumnNumber $FallbackLetter
+        return [pscustomobject]@{
+            Column = $number
+            Letter = $FallbackLetter.ToUpperInvariant()
+            Path = $LeafNames[0]
+            Leaf = $LeafNames[0]
+            Method = 'fallback-column'
+        }
     }
     return $null
 }
@@ -279,6 +354,63 @@ function Get-LastRecordRow($Worksheet, [int]$DataStart) {
     }
 }
 
+function Get-LastRecordRowForMappings($Worksheet, $Mappings, [int]$DataStart) {
+    $used = $Worksheet.UsedRange
+    try {
+        $usedLastRow = $used.Row + $used.Rows.Count - 1
+        if ($usedLastRow -lt $DataStart) { return 0 }
+        $last = 0
+        $seen = @{}
+        foreach ($mapping in $Mappings) {
+            $column = [int]$mapping.Target.Column
+            if ($seen.ContainsKey($column)) { continue }
+            $seen[$column] = $true
+            $letter = Get-ColumnLetter $column
+            $range = $Worksheet.Range("${letter}${DataStart}:${letter}${usedLastRow}")
+            try {
+                foreach ($cellType in @(2, -4123)) { # constants, then formulas
+                    $cells = $null
+                    try {
+                        try { $cells = $range.SpecialCells($cellType) }
+                        catch [System.Runtime.InteropServices.COMException] {
+                            if ($_.Exception.HResult -ne -2146827284) { throw }
+                        }
+                        if ($null -ne $cells) {
+                            foreach ($area in $cells.Areas) {
+                                try {
+                                    $bottom = $area.Row + $area.Rows.Count - 1
+                                    $last = [math]::Max($last, $bottom)
+                                } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($area) }
+                            }
+                        }
+                    } finally {
+                        if ($null -ne $cells) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($cells) }
+                    }
+                }
+            } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) }
+        }
+        return $last
+    } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($used) }
+}
+
+function Convert-Req03Value([object]$Value, [string]$ValueType) {
+    if ($null -eq $Value) { return '' }
+    if ($ValueType -eq 'Text') { return [string]$Value }
+    if ($Value -isnot [string]) { return $Value }
+    $text = $Value.Trim()
+    if (-not $text) { return '' }
+    $number = [double]0
+    if ([double]::TryParse(
+        $text,
+        [Globalization.NumberStyles]::Float,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [ref]$number
+    )) {
+        return $number
+    }
+    return $Value
+}
+
 function Assert-WriteRegion($Worksheet, $Mappings, [int]$Start, [int]$Count) {
     if ($Count -eq 0) { return }
     $end = $Start + $Count - 1
@@ -302,6 +434,7 @@ $sourceWs = $null
 $targetWs = $null
 $sourceUsed = $null
 $workingTargetPath = $null
+$applicationOptimized = $false
 $stage = '检查输出路径'
 $result = [ordered]@{
     success = $false
@@ -333,6 +466,9 @@ try {
     $resolvedOutput = [System.IO.Path]::GetFullPath($OutputPath)
     if (Test-Path -LiteralPath $resolvedOutput -PathType Container) { throw '输出路径是文件夹，请指定完整的 Excel 文件名。' }
     if (-not [System.IO.Path]::GetExtension($resolvedOutput)) { $resolvedOutput += [System.IO.Path]::GetExtension($TargetPath) }
+    if ($Profile -eq 'Req03' -and [System.IO.Path]::GetExtension($resolvedOutput) -ine '.xls') {
+        throw '支线 Req03 的输出文件必须使用 .xls 格式。'
+    }
     $result.output = $resolvedOutput
     $outputDirectory = [System.IO.Path]::GetDirectoryName($resolvedOutput)
     if (-not (Test-Path $outputDirectory)) { New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null }
@@ -352,6 +488,9 @@ try {
     $excel = New-Object -ComObject Excel.Application
     $excel.Visible = $false
     $excel.DisplayAlerts = $false
+    $excel.ScreenUpdating = $false
+    $excel.EnableEvents = $false
+    $applicationOptimized = $true
     $stage = '读取文件 A'
     $sourceWb = $excel.Workbooks.Open((Resolve-Path $SourcePath).Path, 0, $true)
     # Work only on a private copy. Replace starts from B; AppendExisting starts
@@ -373,6 +512,13 @@ try {
     $sourceDefinitions = if ($Profile -eq 'Req02') { @(
         @{ Key = 'SKU'; Names = @('SKU'); Fallback = ''; Targets = @('SKU') },
         @{ Key = '自定义'; Names = @('自定义', '自定义SKU'); Fallback = ''; Targets = @('平台SKU') }
+    ) } elseif ($Profile -eq 'Req03') { @(
+        @{ Key = '自定义SKU'; Names = @('自定义SKU', '自定义'); Fallback = 'D'; Targets = @('SKU(直接从sheet 1导入）'); TargetFallback = 'A'; ValueType = 'Text' },
+        @{ Key = 'SKU价(￥)'; Names = @('SKU价(￥)'); Fallback = 'AA'; Targets = @('SKU价(￥)'); TargetFallback = 'B'; ValueType = 'Number' },
+        @{ Key = '重量(g)'; Names = @('重量(g)'); Fallback = 'AE'; Targets = @('重量(g)'); TargetFallback = 'C'; ValueType = 'Number' },
+        @{ Key = '长'; Names = @('长'); Fallback = 'AY'; Targets = @('长'); TargetFallback = 'H'; ValueType = 'Number' },
+        @{ Key = '宽'; Names = @('宽'); Fallback = 'AZ'; Targets = @('宽'); TargetFallback = 'I'; ValueType = 'Number' },
+        @{ Key = '高'; Names = @('高'); Fallback = 'BA'; Targets = @('高'); TargetFallback = 'J'; ValueType = 'Number' }
     ) } else { @(
         @{ Key = '自定义SKU'; Names = @('自定义SKU'); Fallback = 'D'; Targets = @('SKU') },
         @{ Key = '标题'; Names = @('标题'); Fallback = 'N'; Targets = @('Product Name') },
@@ -402,7 +548,7 @@ try {
     $resolvedMappings = New-Object System.Collections.Generic.List[object]
     foreach ($definition in $sourceDefinitions) {
         $sourceColumn = Find-SourceColumn $sourceWs $definition.Names $definition.Fallback
-        $targetColumn = Find-TargetColumn $targetInfo.Columns $definition.Targets
+        $targetColumn = Find-TargetColumn $targetInfo.Columns $definition.Targets @() $definition.TargetFallback
         if ($null -eq $sourceColumn) {
             $result.skipped += "源字段未找到: $($definition.Key)"
             continue
@@ -419,6 +565,7 @@ try {
             targetColumn = $targetColumn.Letter
             targetField = $targetColumn.Leaf
             targetPath = $targetColumn.Path
+            targetMethod = if ($targetColumn.Method) { $targetColumn.Method } else { 'header' }
         }
     }
 
@@ -446,7 +593,11 @@ try {
     $result.rowsRead = $dataRows.Count
 
     $stage = if ($Profile -eq 'Req02' -and $WriteMode -eq 'Replace') { '检查替换区域' } else { '检查追加位置' }
-    $result.existingLastRow = Get-LastRecordRow $targetWs $targetInfo.DataStart
+    $result.existingLastRow = if ($Profile -eq 'Req03') {
+        Get-LastRecordRowForMappings $targetWs $resolvedMappings $targetInfo.DataStart
+    } else {
+        Get-LastRecordRow $targetWs $targetInfo.DataStart
+    }
     $writeStart = if ($Profile -eq 'Req02' -and $WriteMode -eq 'Replace') {
         $targetInfo.DataStart
     } elseif ($result.existingLastRow -gt 0) {
@@ -470,27 +621,46 @@ try {
     } else {
         Assert-WriteRegion $targetWs $resolvedMappings $writeStart $dataRows.Count
     }
-    $stage = if ($Profile -eq 'Req02') { '写入支线数据' } else { '写入追加数据' }
+    $stage = if ($Profile -eq 'Req02') { '写入支线数据' } elseif ($Profile -eq 'Req03') { '写入支线 03 数据' } else { '写入追加数据' }
 
-    for ($index = 0; $index -lt $dataRows.Count; $index++) {
-        $sourceRow = $dataRows[$index]
-        $targetRow = $writeStart + $index
+    if ($Profile -eq 'Req03' -and $dataRows.Count -gt 0) {
         foreach ($mapping in $resolvedMappings) {
-            $value = Get-CellValue $sourceWs $sourceRow $mapping.Source.Column
-            if ($null -eq $value) { $value = '' }
-            if ($Profile -eq 'Req02') {
-                $cell = $targetWs.Cells.Item($targetRow, $mapping.Target.Column)
-                try { $cell.Value2 = $value }
-                finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($cell) }
-            } else {
-                $alignment = if ((Normalize-Text $mapping.Target.Leaf) -eq 'color') { -4131 } else { 5 }
-                Set-CellValue $targetWs $targetRow $mapping.Target.Column $value $alignment
+            $block = New-Object 'object[,]' $dataRows.Count, 1
+            for ($index = 0; $index -lt $dataRows.Count; $index++) {
+                $value = Get-CellValue $sourceWs $dataRows[$index] $mapping.Source.Column
+                $block[($index), 0] = Convert-Req03Value $value $mapping.Definition.ValueType
             }
+            $letter = $mapping.Target.Letter
+            $endRow = $writeStart + $dataRows.Count - 1
+            $range = $targetWs.Range("${letter}${writeStart}:${letter}${endRow}")
+            try { $range.Value2 = $block }
+            finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) }
         }
-        $result.rowsWritten++
+        $result.rowsWritten = $dataRows.Count
+    } else {
+        for ($index = 0; $index -lt $dataRows.Count; $index++) {
+            $sourceRow = $dataRows[$index]
+            $targetRow = $writeStart + $index
+            foreach ($mapping in $resolvedMappings) {
+                $value = Get-CellValue $sourceWs $sourceRow $mapping.Source.Column
+                if ($null -eq $value) { $value = '' }
+                if ($Profile -eq 'Req02') {
+                    $cell = $targetWs.Cells.Item($targetRow, $mapping.Target.Column)
+                    try { $cell.Value2 = $value }
+                    finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($cell) }
+                } else {
+                    $alignment = if ((Normalize-Text $mapping.Target.Leaf) -eq 'color') { -4131 } else { 5 }
+                    Set-CellValue $targetWs $targetRow $mapping.Target.Column $value $alignment
+                }
+            }
+            $result.rowsWritten++
+        }
     }
 
     $stage = '保存输出文件'
+    $excel.EnableEvents = $true
+    $excel.ScreenUpdating = $true
+    $applicationOptimized = $false
     $targetWb.SaveAs($resolvedOutput)
     $result.output = $targetWb.FullName
     $result.success = $true
@@ -510,6 +680,10 @@ catch {
 }
 finally {
     # A disconnected Excel instance must not suppress the original result.
+    if ($excel -and $applicationOptimized) {
+        try { $excel.EnableEvents = $true } catch {}
+        try { $excel.ScreenUpdating = $true } catch {}
+    }
     if ($sourceWb) { try { $sourceWb.Close($false) } catch {} }
     if ($targetWb) { try { $targetWb.Close($false) } catch {} }
     if ($excel) { try { $excel.Quit() } catch {} }
