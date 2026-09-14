@@ -20,10 +20,10 @@
 
 - 新 profile 名称固定为 `Req04`，必须显式选择或由确定性模板识别；默认 `Mainline` 不变。
 - 目标工作表和叶子表头的匹配结果必须可追溯到需求/用户决策；多命中时报错，不选相邻列。
-- 跨工作表源数据按同一数据行索引关联；摘要继续兼容 `success/output/rowsRead/rowsWritten/mappings/skipped`，新增字段不得破坏旧 GUI。
-- Req04 默认沿用 `Append` 与 `Visible`；若业务要求 Replace，需单独登记用户决策后再开放。
+- 跨工作表源数据按 `SKU` 字段连接，不按物理行号关联；摘要继续兼容 `success/output/rowsRead/rowsWritten/mappings/skipped`，新增字段不得破坏旧 GUI。
+- Req04 已确认仅处理可见行（隐藏/筛选行跳过）；Append/Replace 规则仍需单独登记用户决策后冻结。
 - 视频/模板已确认 `AP=Height`、`AR=Weight`、`AT=Width`；更新后的标准文档已确认 `宽 -> AT`。
-- T34 仍不得开工，直到 T33 解除：两源表行关联、输出扩展名、数值/隐藏行语义及重量双写口径完成确认；A/B 路径和第二个视频状态已解决。
+- T34 仍不得开工，直到 T33 解除：输出扩展名、Append/Replace、空行准入和数值口径完成确认；SKU 连接、仅可见行、重量双写、A/B 路径和第二个视频状态已解决。
 
 > 当前阶段：**03 并行功能**（分支 `feature/req03-parallel`，基线 `14ac950`）。
 > T01–T22 为已关闭的 01/02 阶段记录，保留作回归依据，编号不复用。
