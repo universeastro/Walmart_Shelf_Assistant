@@ -8,7 +8,7 @@
 | 编号 | 负责人 | 状态 | 允许修改模块 | 依赖 |
 |---|---|---|---|---|
 | T31 | Codex | 已完成 | `PROJECT.md`、`TASKS.md`、`HANDOFF.md` | 无；建立 Req04 共享需求与分工 |
-| T32 | Claude | 已完成 | 只读需求/素材/现有实现审查；结论写入 `HANDOFF.md` | T31；确认映射冲突、输入身份、验收边界 |
+| T32 | Claude | 已完成 | 只读需求/素材/现有实现审查；结论写入 `HANDOFF.md` | T31；复审更新后的标准文档、输入身份、验收边界 |
 | T33 | Codex | 待开始 | `文件/04/` 素材登记、测试夹具、`PROJECT.md`、`HANDOFF.md` | T32；用户提供/确认 A/B 工作簿及第二个视频 |
 | T34 | Codex | 待开始 | `excel_mapper.ps1`、Req04 映射配置 | T32/T33；字段契约冻结 |
 | T35 | Codex | 待开始 | `app.py`、`README.md`、构建/依赖配置 | T34 接口稳定 |
@@ -22,7 +22,7 @@
 - 目标工作表和叶子表头的匹配结果必须可追溯到需求/用户决策；多命中时报错，不选相邻列。
 - 跨工作表源数据按同一数据行索引关联；摘要继续兼容 `success/output/rowsRead/rowsWritten/mappings/skipped`，新增字段不得破坏旧 GUI。
 - Req04 默认沿用 `Append` 与 `Visible`；若业务要求 Replace，需单独登记用户决策后再开放。
-- 视频/模板已确认 `AP=Height`、`AR=Weight`、`AT=Width`；文档“宽 -> AP”需用户确认是否更正为 `AT`。
+- 视频/模板已确认 `AP=Height`、`AR=Weight`、`AT=Width`；更新后的标准文档已确认 `宽 -> AT`。
 - T34 仍不得开工，直到 T33 解除：用户确认 A/B 文件路径或授权制作 fixture、第二个视频状态、两源表行关联、输出扩展名及数值/隐藏行语义。
 
 > 当前阶段：**03 并行功能**（分支 `feature/req03-parallel`，基线 `14ac950`）。
