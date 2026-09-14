@@ -20,7 +20,7 @@ except ImportError:
 APP_DIR = Path(__file__).resolve().parent
 MAPPER = APP_DIR / "excel_mapper.ps1"
 SETTINGS_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".config") / "WalmartShelfAssistant" / "settings.json"
-PROFILE_LABELS = {"主线 01": "Mainline", "支线 02": "Req02", "支线 03": "Req03"}
+PROFILE_LABELS = {"主线 01": "Mainline", "支线 02": "Req02", "支线 03": "Req03", "支线 04": "Req04"}
 PROFILE_KEYS = {value: label for label, value in PROFILE_LABELS.items()}
 PATH_KEYS = ("source", "target", "output")
 ROW_MODES = ("Visible", "All")
@@ -432,6 +432,7 @@ class ShelfAssistant(tk.Tk):
         if hasattr(self, "row_mode_buttons"):
             for button in self.row_mode_buttons:
                 button.configure(variable=self.row_mode_var)
+            self._update_row_mode_controls()
         if hasattr(self, "_profile_pages"):
             self._profile_pages[label].tkraise()
             self.file_controls = self._profile_file_controls[label]
@@ -442,6 +443,15 @@ class ShelfAssistant(tk.Tk):
         if hasattr(self, "status_label") and not self.running:
             self._refresh_ready_status()
         return True
+
+    def _update_row_mode_controls(self):
+        if not hasattr(self, "row_mode_buttons"):
+            return
+        locked = self._active_profile_label == "支线 04" or self.running
+        for button in self.row_mode_buttons:
+            button.configure(state="disabled" if locked else "normal")
+        if self._active_profile_label == "支线 04":
+            self.row_mode_var.set("Visible")
 
     def _on_profile_selected(self, _event=None):
         self._on_profile_var_changed()
@@ -469,6 +479,8 @@ class ShelfAssistant(tk.Tk):
             return "支线 03"
         if target_norm.endswith("\\02\\b模板.xls") or "\\02\\b模板.xls" in target_norm:
             return "支线 02"
+        if "\\04\\" in target_norm and target_norm.rsplit("\\", 1)[-1].startswith("b模板"):
+            return "支线 04"
         if "\\01\\" in target_norm and target_norm.rsplit("\\", 1)[-1].startswith("b模板"):
             return "主线 01"
         return None
@@ -502,6 +514,11 @@ class ShelfAssistant(tk.Tk):
         if kind == "output" and profile_label == "支线 03" and path.suffix.lower() != ".xls":
             messagebox.showwarning("输出格式不支持", "支线 03 的输出文件必须使用 .xls 格式。", parent=self)
             return "break"
+        if kind == "output" and profile_label == "支线 04":
+            target = self._profile_path_vars[profile_label]["target"].get().strip()
+            if target and path.suffix.lower() != Path(target).suffix.lower():
+                messagebox.showwarning("输出格式不支持", "支线 04 的输出扩展名必须跟随文件 B。", parent=self)
+                return "break"
         if kind == "target":
             profile_label = self._resolve_target_profile(path, profile_label)
             variable = self._profile_path_vars[profile_label]["target"]
@@ -565,7 +582,8 @@ class ShelfAssistant(tk.Tk):
     def _choose_output(self):
         target = self.target_var.get().strip()
         is_req03 = self._active_profile_label == "支线 03"
-        default_extension = ".xls" if is_req03 else ".xlsx"
+        is_req04 = self._active_profile_label == "支线 04"
+        default_extension = Path(target).suffix if is_req04 and target else (".xls" if is_req03 else ".xlsx")
         filetypes = (("Excel 97-2003 工作簿", "*.xls"), ("所有文件", "*.*")) if is_req03 else (
             ("Excel 文件", "*.xls;*.xlsx;*.xlsm"), ("所有文件", "*.*")
         )
@@ -605,7 +623,7 @@ class ShelfAssistant(tk.Tk):
         target = path_vars["target"].get().strip()
         if target and not path_vars["output"].get().strip():
             target_path = Path(target)
-            suffix = ".xls" if profile_label == "支线 03" else ".xlsx"
+            suffix = Path(target).suffix if profile_label == "支线 04" and Path(target).suffix else (".xls" if profile_label == "支线 03" else ".xlsx")
             path_vars["output"].set(str(target_path.with_name(target_path.stem + "_已填充" + suffix)))
 
     def _resolve_target_profile(self, path, current_label):
@@ -649,6 +667,9 @@ class ShelfAssistant(tk.Tk):
         effective_output = self._effective_output_path(output, target)
         if self._active_profile_label == "支线 03" and effective_output.suffix.lower() != ".xls":
             messagebox.showwarning("输出格式不支持", "支线 03 的输出文件必须使用 .xls 格式。")
+            return
+        if self._active_profile_label == "支线 04" and effective_output.suffix.lower() != target.suffix.lower():
+            messagebox.showwarning("输出格式不支持", "支线 04 的输出扩展名必须跟随文件 B。")
             return
         if effective_output.resolve() in (target.resolve(), source.resolve()):
             messagebox.showwarning("输出路径无效", "输出文件不能覆盖文件 A 或文件 B。")
@@ -750,8 +771,7 @@ class ShelfAssistant(tk.Tk):
         for control in self.all_file_controls:
             control.configure(state="normal")
         self.profile_combo.configure(state="readonly")
-        for button in self.row_mode_buttons:
-            button.configure(state="normal")
+        self._update_row_mode_controls()
         if payload.get("success") and returncode == 0:
             self.summary_var.set(f"读取 {payload.get('rowsRead', 0)} 行    写入 {payload.get('rowsWritten', 0)} 行    跳过隐藏 {payload.get('rowsHiddenSkipped', 0)} 行")
             output_path = payload.get("output") or self.output_var.get()
@@ -770,6 +790,8 @@ class ShelfAssistant(tk.Tk):
             if payload.get('writeStartRow') and payload.get('rowsWritten', 0):
                 self._write_log(f"本批次从第 {payload['writeStartRow']} 行开始写入；已有数据末行：{payload.get('existingLastRow', 0)}。")
             self._write_log(f"跳过隐藏行：{payload.get('rowsHiddenSkipped', 0)} 行。")
+            for warning in payload.get("warnings", []):
+                self._write_log("警告：" + warning)
             for item in payload.get("skipped", []):
                 self._write_log("跳过：" + item)
             if self.completion_dialog is not None and self.completion_dialog.winfo_exists():

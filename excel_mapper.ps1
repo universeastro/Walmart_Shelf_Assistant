@@ -5,7 +5,7 @@
     [string]$TargetPath,
     [Parameter(Mandatory = $true)]
     [string]$OutputPath,
-    [ValidateSet('Mainline', 'Req02', 'Req03')]
+    [ValidateSet('Mainline', 'Req02', 'Req03', 'Req04')]
     [string]$Profile = 'Mainline',
     [ValidateSet('Append', 'Replace')]
     [string]$WriteMode = 'Append',
@@ -76,16 +76,21 @@ function Set-CellValue($Worksheet, [int]$Row, [int]$Column, [object]$Value, [int
     }
 }
 
-function Find-SourceColumn($Worksheet, [string[]]$HeaderNames, [string]$FallbackLetter) {
+function Find-SourceColumn($Worksheet, [string[]]$HeaderNames, [string]$FallbackLetter, [bool]$FallbackOnAmbiguous = $false) {
     $used = $Worksheet.UsedRange
     $headerRow = $used.Row
     $maxColumn = $used.Column + $used.Columns.Count - 1
     $wanted = @($HeaderNames | ForEach-Object { Normalize-Text $_ } | Where-Object { $_ })
+    $matches = New-Object System.Collections.Generic.List[int]
     for ($column = $used.Column; $column -le $maxColumn; $column++) {
         $text = Normalize-Text (Get-CellText $Worksheet $headerRow $column)
         if ($text -and $wanted -contains $text) {
-            return [pscustomobject]@{ Column = $column; Header = Get-ColumnLetter $column; Method = 'header' }
+            $matches.Add($column)
         }
+    }
+    if ($matches.Count -eq 1 -or ($matches.Count -gt 1 -and -not $FallbackOnAmbiguous)) {
+        $column = $matches[0]
+        return [pscustomobject]@{ Column = $column; Header = Get-ColumnLetter $column; Method = 'header' }
     }
     if ($FallbackLetter) {
         $number = Get-ColumnNumber $FallbackLetter
@@ -95,6 +100,19 @@ function Find-SourceColumn($Worksheet, [string[]]$HeaderNames, [string]$Fallback
 }
 
 function Find-TargetSheet($Workbook, [string]$MappingProfile = 'Mainline') {
+    if ($MappingProfile -eq 'Req04') {
+        try {
+            $named = $Workbook.Worksheets.Item('Product Content And Site Exp')
+            if ($named.Visible -ne -1) {
+                [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($named)
+                throw '目标工作表“Product Content And Site Exp”不是可见工作表，为保护模板已停止写入。'
+            }
+            return $named
+        } catch {
+            if ($_.Exception.Message -like '*不是可见工作表*') { throw }
+            throw '未找到目标工作表“Product Content And Site Exp”。'
+        }
+    }
     if ($MappingProfile -eq 'Req03') {
         $named = $null
         try { $named = $Workbook.Worksheets.Item('导入 单位转换') } catch {}
@@ -207,6 +225,48 @@ function Find-TargetColumns($Worksheet, [string]$MappingProfile = 'Mainline') {
     $used = $Worksheet.UsedRange
     $maxRow = $used.Row + $used.Rows.Count - 1
     $maxColumn = $used.Column + $used.Columns.Count - 1
+
+    if ($MappingProfile -eq 'Req04') {
+        $usedStartRow = $used.Row
+        $headerRows = New-Object System.Collections.Generic.List[int]
+        for ($row = $used.Row; $row -le [math]::Min($maxRow, $used.Row + 3); $row++) {
+            $headerRows.Add($row)
+        }
+        $descriptionRow = $null
+        for ($row = $used.Row + 4; $row -le [math]::Min($maxRow, $used.Row + 10); $row++) {
+            $keywordHits = 0
+            for ($column = $used.Column; $column -le $maxColumn; $column++) {
+                $sample = Normalize-Text (Get-CellText $Worksheet $row $column)
+                if ($sample -match 'alphanumeric,|decimal,|closed list -|dateonly,|number,|boolean,') { $keywordHits++ }
+            }
+            if ($keywordHits -ge 5) {
+                $descriptionRow = $row
+                break
+            }
+        }
+        $columns = @{}
+        for ($column = $used.Column; $column -le $maxColumn; $column++) {
+            $parts = New-Object System.Collections.Generic.List[string]
+            foreach ($row in $headerRows) {
+                $text = Normalize-Text (Get-CellText $Worksheet $row $column)
+                if ($text -and ($parts.Count -eq 0 -or $parts[$parts.Count - 1] -ne $text)) {
+                    $parts.Add($text)
+                }
+            }
+            if ($parts.Count -gt 0) {
+                $columns[$column] = [pscustomobject]@{
+                    Column = $column
+                    Letter = Get-ColumnLetter $column
+                    Path = ($parts -join ' > ')
+                    Leaf = $parts[$parts.Count - 1]
+                    Method = 'header'
+                }
+            }
+        }
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($used)
+        $dataStart = if ($descriptionRow) { $descriptionRow + 1 } else { $usedStartRow + 6 }
+        return [pscustomobject]@{ Columns = $columns; HeaderRows = $headerRows; DataStart = $dataStart }
+    }
     $headerRows = New-Object System.Collections.Generic.List[int]
     $descriptionRow = $null
     $leafHeaderRow = $null
@@ -413,6 +473,98 @@ function Convert-Req03Value([object]$Value, [string]$ValueType) {
     return $Value
 }
 
+function Convert-Req04Value([object]$Value) {
+    if ($null -eq $Value) {
+        return [pscustomobject]@{ Value = ''; Converted = $true }
+    }
+    if ($Value -isnot [string]) {
+        return [pscustomobject]@{ Value = $Value; Converted = $true }
+    }
+    $text = $Value.Trim()
+    if (-not $text) {
+        return [pscustomobject]@{ Value = ''; Converted = $true }
+    }
+    $number = [double]0
+    if ([double]::TryParse(
+        $text,
+        [Globalization.NumberStyles]::Float,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [ref]$number
+    ) -and -not [double]::IsNaN($number) -and -not [double]::IsInfinity($number)) {
+        return [pscustomobject]@{ Value = $number; Converted = $true }
+    }
+    return [pscustomobject]@{ Value = $Value; Converted = $false }
+}
+
+function Get-Req04SourceRows($Worksheet, $Columns, [string[]]$BusinessKeys, [string]$RowMode, [ref]$HiddenSkipped) {
+    $used = $Worksheet.UsedRange
+    $headerRow = $used.Row
+    $lastRow = $used.Row + $used.Rows.Count - 1
+    $rows = New-Object System.Collections.Generic.List[object]
+    $seen = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::OrdinalIgnoreCase)
+    try {
+        $columnNumbers = @($Columns.Values | ForEach-Object { [int]$_.Column })
+        $firstColumn = ($columnNumbers | Measure-Object -Minimum).Minimum
+        $lastColumn = ($columnNumbers | Measure-Object -Maximum).Maximum
+        $firstLetter = Get-ColumnLetter $firstColumn
+        $lastLetter = Get-ColumnLetter $lastColumn
+        $dataRange = $Worksheet.Range("${firstLetter}${headerRow}:${lastLetter}${lastRow}")
+        try {
+            $valuesBlock = $dataRange.Value2
+            $formulasBlock = $dataRange.Formula
+        } finally {
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($dataRange)
+        }
+        for ($row = $headerRow + 1; $row -le $lastRow; $row++) {
+            $rowRange = $Worksheet.Rows.Item($row)
+            try { $isHidden = [bool]$rowRange.Hidden }
+            finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($rowRange) }
+            $values = [ordered]@{}
+            $hasBusinessValue = $false
+            $hasNonFormulaBusinessValue = $false
+            foreach ($key in $Columns.Keys) {
+                $column = $Columns[$key].Column
+                $rowIndex = $row - $headerRow + 1
+                $columnIndex = $column - $firstColumn + 1
+                $value = $valuesBlock[$rowIndex, $columnIndex]
+                $formula = $formulasBlock[$rowIndex, $columnIndex]
+                $hasFormula = $formula -is [string] -and $formula.StartsWith('=')
+                if ($null -eq $value) { $value = '' }
+                $values[$key] = $value
+                if ($BusinessKeys -contains $key -and [string]$value -ne '') {
+                    $hasBusinessValue = $true
+                    if (-not $hasFormula) { $hasNonFormulaBusinessValue = $true }
+                }
+            }
+            $sku = [string]$values['SKU']
+            $isScaffold = $sku -eq '0' -and -not $hasNonFormulaBusinessValue
+            if ($isHidden -and $RowMode -eq 'Visible') {
+                if (-not $isScaffold -and (-not [string]::IsNullOrWhiteSpace($sku) -or $hasNonFormulaBusinessValue)) {
+                    $HiddenSkipped.Value++
+                }
+                continue
+            }
+            if ([string]::IsNullOrWhiteSpace($sku)) {
+                if ($hasNonFormulaBusinessValue) {
+                    throw ('源工作表“{0}”第 {1} 行存在真实业务数据但 SKU 为空。' -f $Worksheet.Name, $row)
+                }
+                continue
+            }
+            if ($isScaffold) { continue }
+            $key = Normalize-Text $sku
+            if ($seen.ContainsKey($key)) {
+                throw ('源工作表“{0}”存在重复 SKU：{1}（第 {2} 行与第 {3} 行）。' -f $Worksheet.Name, $sku, $seen[$key].Row, $row)
+            }
+            $record = [pscustomobject]@{ Row = $row; SKU = $sku; Key = $key; Values = $values }
+            $seen[$key] = $record
+            $rows.Add($record)
+        }
+        return [pscustomobject]@{ Rows = $rows; BySku = $seen }
+    } finally {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($used)
+    }
+}
+
 function Assert-WriteRegion($Worksheet, $Mappings, [int]$Start, [int]$Count) {
     if ($Count -eq 0) { return }
     $end = $Start + $Count - 1
@@ -433,8 +585,12 @@ $excel = $null
 $sourceWb = $null
 $targetWb = $null
 $sourceWs = $null
+$sourceUnitsWs = $null
+$sourcePriceWs = $null
 $targetWs = $null
 $sourceUsed = $null
+$sourceUnitsUsed = $null
+$sourcePriceUsed = $null
 $workingTargetPath = $null
 $applicationOptimized = $false
 $stage = '检查输出路径'
@@ -455,6 +611,7 @@ $result = [ordered]@{
     outputMode = $OutputMode
     mappings = @()
     skipped = @()
+    warnings = @()
     message = ''
 }
 
@@ -462,12 +619,18 @@ try {
     if ($Profile -ne 'Req02' -and $WriteMode -ne 'Append') {
         throw 'WriteMode Replace 仅适用于支线 Req02。'
     }
+    if ($Profile -eq 'Req04' -and $RowMode -ne 'Visible') {
+        throw '支线 Req04 只支持“仅可见行”导出。'
+    }
     if ($OutputMode -eq 'AppendExisting' -and $WriteMode -ne 'Append') {
         throw '继续写入现有输出不能与 WriteMode Replace 同时使用。'
     }
     $resolvedOutput = [System.IO.Path]::GetFullPath($OutputPath)
     if (Test-Path -LiteralPath $resolvedOutput -PathType Container) { throw '输出路径是文件夹，请指定完整的 Excel 文件名。' }
     if (-not [System.IO.Path]::GetExtension($resolvedOutput)) { $resolvedOutput += [System.IO.Path]::GetExtension($TargetPath) }
+    if ($Profile -eq 'Req04' -and [System.IO.Path]::GetExtension($resolvedOutput) -ine [System.IO.Path]::GetExtension($TargetPath)) {
+        throw "支线 Req04 的输出扩展名必须跟随文件 B：$([System.IO.Path]::GetExtension($TargetPath))。"
+    }
     if ($Profile -eq 'Req03' -and [System.IO.Path]::GetExtension($resolvedOutput) -ine '.xls') {
         throw '支线 Req03 的输出文件必须使用 .xls 格式。'
     }
@@ -503,14 +666,139 @@ try {
     $stage = if ($OutputMode -eq 'AppendExisting') { '读取现有输出副本' } else { '读取模板副本' }
     $targetWb = $excel.Workbooks.Open($workingTargetPath, 0, $false)
     $stage = '匹配并写入数据'
-    $sourceWs = $sourceWb.Worksheets.Item(1)
     $targetWs = Find-TargetSheet $targetWb $Profile
     $result.targetSheet = $targetWs.Name
     $targetInfo = Find-TargetColumns $targetWs $Profile
-    $sourceUsed = $sourceWs.UsedRange
-    $sourceHeaderRow = $sourceUsed.Row
-    $sourceLastRow = $sourceUsed.Row + $sourceUsed.Rows.Count - 1
+    if ($Profile -ne 'Req04') {
+        $sourceWs = $sourceWb.Worksheets.Item(1)
+        $sourceUsed = $sourceWs.UsedRange
+        $sourceHeaderRow = $sourceUsed.Row
+        $sourceLastRow = $sourceUsed.Row + $sourceUsed.Rows.Count - 1
+    }
 
+    if ($Profile -eq 'Req04') {
+        $sourceUnitsWs = $sourceWb.Worksheets.Item('导入 单位转换')
+        $sourcePriceWs = $sourceWb.Worksheets.Item('价格')
+        $unitDefinitions = @(
+            @{ Key = 'SKU'; Names = @('SKU(直接从sheet 1导入）', 'SKU(直接从sheet 1导入)', 'SKU'); Fallback = 'A' },
+            @{ Key = 'Weight'; Names = @('重量(lb)两位小数'); Fallback = 'E' },
+            @{ Key = 'Length'; Names = @('长in'); Fallback = 'K' },
+            @{ Key = 'Width'; Names = @('宽in'); Fallback = 'L' },
+            @{ Key = 'Height'; Names = @('高in'); Fallback = 'M' }
+        )
+        $priceDefinitions = @(
+            @{ Key = 'SKU'; Names = @('SKU(直接从sheet 1导入）', 'SKU(直接从sheet 1导入)', 'SKU'); Fallback = 'A' },
+            @{ Key = 'SellingPrice'; Names = @('上架表价格'); Fallback = 'I' },
+            @{ Key = 'MSRP'; Names = @('厂商价MSRP（公式） +10', '厂商价MSRP'); Fallback = 'Q' }
+        )
+        $unitColumns = @{}
+        foreach ($definition in $unitDefinitions) {
+            $column = Find-SourceColumn $sourceUnitsWs $definition.Names $definition.Fallback $true
+            if ($null -eq $column) { throw ('源工作表“导入 单位转换”缺少字段：{0}。' -f $definition.Key) }
+            $unitColumns[$definition.Key] = $column
+        }
+        $priceColumns = @{}
+        foreach ($definition in $priceDefinitions) {
+            $column = Find-SourceColumn $sourcePriceWs $definition.Names $definition.Fallback $true
+            if ($null -eq $column) { throw ('源工作表“价格”缺少字段：{0}。' -f $definition.Key) }
+            $priceColumns[$definition.Key] = $column
+        }
+
+        $targetDefinitions = @(
+            @{ Key = 'Weight'; Targets = @('Shipping Weight (lbs)'); Hints = @(); Fallback = 'K'; SourceSheet = '导入 单位转换'; SourceKey = 'Weight'; SourceLabel = '重量(lb)两位小数(E)' },
+            @{ Key = 'Length'; Targets = @('Measure'); Hints = @('Assembled Product Depth', 'assembledProductLength'); Fallback = 'AN'; SourceSheet = '导入 单位转换'; SourceKey = 'Length'; SourceLabel = '长in(K)' },
+            @{ Key = 'Height'; Targets = @('Measure'); Hints = @('Assembled Product Height'); Fallback = 'AP'; SourceSheet = '导入 单位转换'; SourceKey = 'Height'; SourceLabel = '高in(M)' },
+            @{ Key = 'Width'; Targets = @('Measure'); Hints = @('Assembled Product Width'); Fallback = 'AT'; SourceSheet = '导入 单位转换'; SourceKey = 'Width'; SourceLabel = '宽in(L)' },
+            @{ Key = 'SellingPrice'; Targets = @('Selling Price'); Hints = @(); Fallback = 'J'; SourceSheet = '价格'; SourceKey = 'SellingPrice'; SourceLabel = '上架表价格(I)' },
+            @{ Key = 'MSRP'; Targets = @('MSRP'); Hints = @(); Fallback = 'CR'; SourceSheet = '价格'; SourceKey = 'MSRP'; SourceLabel = '厂商价MSRP（公式） +10(Q)' },
+            @{ Key = 'WeightAR'; Targets = @('Measure'); Hints = @('Assembled Product Weight'); Fallback = 'AR'; SourceSheet = '导入 单位转换'; SourceKey = 'Weight'; SourceLabel = '重量(lb)两位小数(E)' }
+        )
+        $resolvedMappings = New-Object System.Collections.Generic.List[object]
+        foreach ($definition in $targetDefinitions) {
+            $targetColumn = Find-TargetColumn $targetInfo.Columns $definition.Targets $definition.Hints $definition.Fallback
+            if ($null -eq $targetColumn) { throw "目标字段未找到：$($definition.Key)。" }
+            $sourceColumn = if ($definition.SourceSheet -eq '价格') { $priceColumns[$definition.SourceKey] } else { $unitColumns[$definition.SourceKey] }
+            $resolvedMappings.Add([pscustomobject]@{ Definition = $definition; Source = $sourceColumn; Target = $targetColumn })
+            $result.mappings += [ordered]@{
+                source = "$($definition.SourceSheet).$($definition.SourceLabel)"
+                sourceColumn = $sourceColumn.Header
+                sourceMethod = $sourceColumn.Method
+                targetColumn = $targetColumn.Letter
+                targetField = $targetColumn.Leaf
+                targetPath = $targetColumn.Path
+                targetMethod = if ($targetColumn.Method) { $targetColumn.Method } else { 'header' }
+            }
+        }
+
+        $hiddenSkipped = 0
+        $unitData = Get-Req04SourceRows $sourceUnitsWs $unitColumns @('Weight', 'Length', 'Width', 'Height') $RowMode ([ref]$hiddenSkipped)
+        $priceData = Get-Req04SourceRows $sourcePriceWs $priceColumns @('SellingPrice', 'MSRP') $RowMode ([ref]$hiddenSkipped)
+        $result.rowsHiddenSkipped = $hiddenSkipped
+        foreach ($unitRow in $unitData.Rows) {
+            if (-not $priceData.BySku.ContainsKey($unitRow.Key)) {
+                throw "SKU 在价格表中未找到匹配项：$($unitRow.SKU)。"
+            }
+        }
+        foreach ($priceRow in $priceData.Rows) {
+            if (-not $unitData.BySku.ContainsKey($priceRow.Key)) {
+                throw "SKU 在单位转换表中未找到匹配项：$($priceRow.SKU)。"
+            }
+        }
+        $dataRows = New-Object System.Collections.Generic.List[object]
+        foreach ($unitRow in $unitData.Rows) {
+            $priceRow = $priceData.BySku[$unitRow.Key]
+            $values = [ordered]@{
+                Weight = $unitRow.Values['Weight']
+                Length = $unitRow.Values['Length']
+                Width = $unitRow.Values['Width']
+                Height = $unitRow.Values['Height']
+                SellingPrice = $priceRow.Values['SellingPrice']
+                MSRP = $priceRow.Values['MSRP']
+            }
+            $hasBusinessValue = $false
+            foreach ($value in $values.Values) {
+                if ([string]$value -ne '') {
+                    $hasBusinessValue = $true
+                    break
+                }
+            }
+            if (-not $hasBusinessValue) { continue }
+            $dataRows.Add([pscustomobject]@{
+                SKU = $unitRow.SKU
+                Key = $unitRow.Key
+                Values = $values
+            })
+        }
+        $result.rowsRead = $dataRows.Count
+        $stage = '检查追加位置'
+        $result.existingLastRow = Get-LastRecordRowForMappings $targetWs $resolvedMappings $targetInfo.DataStart
+        # Req04 always appends relative to the selected base workbook. OutputMode
+        # only chooses B versus an existing output as that base; it never clears
+        # the template's existing records.
+        $writeStart = if ($result.existingLastRow -gt 0) { $result.existingLastRow + 4 } else { $targetInfo.DataStart }
+        $result.writeStartRow = $writeStart
+        Assert-WriteRegion $targetWs $resolvedMappings $writeStart $dataRows.Count
+        $stage = '写入支线 04 数据'
+        if ($dataRows.Count -gt 0) {
+            foreach ($mapping in $resolvedMappings) {
+                $block = New-Object 'object[,]' $dataRows.Count, 1
+                for ($index = 0; $index -lt $dataRows.Count; $index++) {
+                    $rawValue = $dataRows[$index].Values[$mapping.Definition.SourceKey]
+                    $converted = Convert-Req04Value $rawValue
+                    $block[($index), 0] = $converted.Value
+                    if (-not $converted.Converted -and [string]$rawValue -ne '') {
+                        $result.warnings += ('SKU {0}：源字段 {1}.{2} 的值“{3}”无法转换为数值，已按文本写入目标 {4}.{5}。'-f $dataRows[$index].SKU, $mapping.Definition.SourceSheet, $mapping.Definition.SourceLabel, $rawValue, $mapping.Target.Letter, $mapping.Target.Leaf)
+                    }
+                }
+                $letter = $mapping.Target.Letter
+                $endRow = $writeStart + $dataRows.Count - 1
+                $range = $targetWs.Range("${letter}${writeStart}:${letter}${endRow}")
+                try { $range.Value2 = $block; $range.HorizontalAlignment = 5 }
+                finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) }
+            }
+            $result.rowsWritten = $dataRows.Count
+        }
+    } else {
     $sourceDefinitions = if ($Profile -eq 'Req02') { @(
         @{ Key = 'SKU'; Names = @('SKU'); Fallback = ''; Targets = @('SKU') },
         @{ Key = '自定义'; Names = @('自定义', '自定义SKU'); Fallback = ''; Targets = @('平台SKU') }
@@ -660,6 +948,8 @@ try {
         }
     }
 
+    }
+
     $stage = '保存输出文件'
     $excel.EnableEvents = $true
     $excel.ScreenUpdating = $true
@@ -668,6 +958,9 @@ try {
     $result.output = $targetWb.FullName
     $result.success = $true
     $result.message = if ($dataRows.Count -eq 0) { '未发现源数据行；已生成未填充的输出副本。' } else { '映射完成。' }
+    if ($result.warnings.Count -gt 0) {
+        $result.message += " 数值转换警告 $($result.warnings.Count) 条，已按文本写入。"
+    }
 }
 catch {
     $result.message = $_.Exception.Message
@@ -690,7 +983,7 @@ finally {
     if ($sourceWb) { try { $sourceWb.Close($false) } catch {} }
     if ($targetWb) { try { $targetWb.Close($false) } catch {} }
     if ($excel) { try { $excel.Quit() } catch {} }
-    foreach ($object in @($sourceUsed, $sourceWs, $targetWs, $sourceWb, $targetWb, $excel)) {
+    foreach ($object in @($sourceUsed, $sourceWs, $sourceUnitsWs, $sourcePriceWs, $targetWs, $sourceWb, $targetWb, $excel)) {
         if ($object) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($object) } catch {} }
     }
     if ($workingTargetPath -and (Test-Path -LiteralPath $workingTargetPath)) {

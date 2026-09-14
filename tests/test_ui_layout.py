@@ -19,7 +19,7 @@ class UILayoutTests(unittest.TestCase):
         self.window.update()
 
     def test_controls_fit_at_supported_sizes(self):
-        for profile in ("主线 01", "支线 02", "支线 03"):
+        for profile in ("主线 01", "支线 02", "支线 03", "支线 04"):
             self.window.profile_var.set(profile)
             for size in ("720x620", "880x680", "1100x800"):
                 with self.subTest(profile=profile, size=size):
@@ -404,6 +404,63 @@ class UILayoutTests(unittest.TestCase):
         self.assertEqual(result, "break")
         self.assertEqual(self.window.output_var.get(), "")
         warning.assert_called_once()
+
+    def test_req04_locks_visible_rows_and_uses_target_extension(self):
+        self.window.profile_var.set("支线 04")
+        self.assertEqual(self.window.row_mode_var.get(), "Visible")
+        for button in self.window.row_mode_buttons:
+            self.assertIn("disabled", button.state())
+
+        target = Path(self.temp.name) / "04" / "B模板.xlsm"
+        target.parent.mkdir()
+        target.touch()
+        self.window.target_var.set(str(target))
+        self.window._set_default_output()
+        self.assertEqual(Path(self.window.output_var.get()).suffix, ".xlsm")
+
+        with patch("app.filedialog.asksaveasfilename", return_value="") as choose:
+            self.window._choose_output()
+        self.assertEqual(choose.call_args.kwargs["defaultextension"], ".xlsm")
+
+    def test_req04_rejects_output_extension_mismatch_before_starting(self):
+        self.window.profile_var.set("支线 04")
+        for name, variable in (("a.xls", self.window.source_var), ("b.xlsx", self.window.target_var)):
+            path = Path(self.temp.name) / name
+            path.touch()
+            variable.set(str(path))
+        self.window.output_var.set(str(Path(self.temp.name) / "bad-output.xls"))
+
+        with patch("app.messagebox.showwarning") as warning, patch("app.threading.Thread") as worker:
+            self.window.run_mapping()
+
+        warning.assert_called_once()
+        self.assertIn("跟随文件 B", warning.call_args.args[1])
+        worker.assert_not_called()
+        self.assertFalse(self.window.running)
+
+    def test_req04_worker_contract_and_warning_log(self):
+        completed = SimpleNamespace(
+            stdout='{"success":true,"warnings":["SKU X: bad number"]}', stderr="", returncode=0
+        )
+        with patch("app.subprocess.run", return_value=completed) as run, patch.object(self.window, "after"):
+            self.window._run_worker(
+                Path("a.xls"), Path("b.xlsx"), Path("out.xlsx"), "Visible", "Req04", "Replace"
+            )
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("-Profile") + 1], "Req04")
+        self.assertEqual(command[command.index("-RowMode") + 1], "Visible")
+
+        output = Path(self.temp.name) / "out.xlsx"
+        with patch("app.CompletionDialog"):
+            self.window._finish(
+                {"success": True, "output": str(output), "rowsRead": 1, "rowsWritten": 1,
+                 "warnings": ["SKU X: bad number"]},
+                0,
+                "Replace",
+                False,
+            )
+            self.window.completion_dialog = None
+        self.assertIn("警告：SKU X: bad number", self.window.log.get("1.0", "end"))
 
 
 if __name__ == "__main__":

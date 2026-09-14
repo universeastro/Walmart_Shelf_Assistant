@@ -14,12 +14,15 @@ Two traps this script exists to avoid, both hit during earlier verification:
    rules with identical criteria (observed 48 -> 43), losing nothing. Judge by
    sqref COVERAGE, which is what this script reports.
 """
-import sys, zipfile, re
+import re
+import sys
+import zipfile
+from collections import defaultdict
 
 
 def parts(p):
     with zipfile.ZipFile(p) as z:
-        return {n: z.read(n) for n in z.namelist()}
+        return {n: z.read(n) for n in z.namelist() if not n.endswith('/')}
 
 
 def sheet_map(P):
@@ -36,20 +39,57 @@ def sheet_map(P):
     return m
 
 
-def sqrefs(x):
-    s = set()
-    for m in re.findall(r'<conditionalFormatting[^>]*sqref="([^"]+)"', x):
-        s.update(m.split())
-    return s
+def column_number(letters):
+    value = 0
+    for char in letters.upper():
+        value = value * 26 + ord(char) - 64
+    return value
 
 
-def formulas(P):
+def sqref_coverage(refs):
+    """Canonical row intervals, so A1:A3 B1:B3 equals A1:B3."""
+    rows = defaultdict(list)
+    for token in refs:
+        ends = token.replace('$', '').split(':')
+        if len(ends) == 1:
+            ends.append(ends[0])
+        parsed = []
+        for end in ends:
+            match = re.fullmatch(r'([A-Z]+)(\d+)', end, re.I)
+            if not match:
+                raise ValueError('Unsupported sqref: ' + token)
+            parsed.append((column_number(match.group(1)), int(match.group(2))))
+        (c1, r1), (c2, r2) = parsed
+        c1, c2 = sorted((c1, c2))
+        r1, r2 = sorted((r1, r2))
+        for row in range(r1, r2 + 1):
+            rows[row].append((c1, c2))
+    canonical = []
+    for row, intervals in sorted(rows.items()):
+        merged = []
+        for start, end in sorted(intervals):
+            if merged and start <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        canonical.append((row, tuple(merged)))
+    return tuple(canonical)
+
+
+def element_sqrefs(x, element):
+    refs = []
+    for match in re.findall(r'<%s\b[^>]*\bsqref="([^"]+)"' % element, x):
+        refs.extend(match.split())
+    return refs
+
+
+def formulas(P, sheets):
     """address -> formula text, for every sheet part."""
     out = {}
-    for k, v in P.items():
-        if not (k.startswith('xl/worksheets/') and k.endswith('.xml')):
+    for sheet_name, part_path in sheets.items():
+        if part_path not in P:
             continue
-        text = v.decode('utf-8', 'replace')
+        text = P[part_path].decode('utf-8', 'replace')
         # Drop self-closing cell tags first. Otherwise `<c r="BS3" s="1"/>` matches
         # `<c r="..."[^>]*>(.*?)</c>` by swallowing the NEXT cell's body, and every
         # formula after an empty cell gets reported under the wrong address.
@@ -58,24 +98,28 @@ def formulas(P):
             addr, body = m.group(1), m.group(2)
             fm = re.search(r'<f([^>]*)>(.*?)</f>', body, re.S)
             if fm:
-                out[k + '!' + addr] = (fm.group(1).strip(), fm.group(2))
+                out[sheet_name + '!' + addr] = (fm.group(1).strip(), fm.group(2))
     return out
 
 
 def main():
     tpl, out = parts(sys.argv[1]), parts(sys.argv[2])
+    failed = False
 
     print("== part counts ==")
     print("  template: %d   output: %d" % (len(tpl), len(out)))
 
     missing = sorted(set(tpl) - set(out))
     added = sorted(set(out) - set(tpl))
+    failed = failed or bool(missing)
     print("\n== parts MISSING from output ==")
     print("  (none)" if not missing else "\n".join("  - " + m for m in missing))
     print("\n== parts ADDED in output ==")
     print("  (none)" if not added else "\n".join("  + " + a for a in added))
 
     tm, om = sheet_map(tpl), sheet_map(out)
+    if set(tm) != set(om):
+        failed = True
 
     print("\n== sheet -> part mapping (aligned BY NAME) ==")
     for n in tm:
@@ -84,26 +128,34 @@ def main():
     print("\n== dataValidation counts ==")
     for n, tp in tm.items():
         op = om.get(n)
-        tc = tpl[tp].decode('utf-8', 'replace').count('<dataValidation ')
-        oc = out[op].decode('utf-8', 'replace').count('<dataValidation ') if op else -1
-        print("  %-36s tpl=%3d out=%3d  %s" % (n[:36], tc, oc, "OK" if tc == oc else "** DIFF **"))
+        template_xml = tpl[tp].decode('utf-8', 'replace')
+        output_xml = out[op].decode('utf-8', 'replace') if op else ''
+        template_refs = element_sqrefs(template_xml, 'dataValidation')
+        output_refs = element_sqrefs(output_xml, 'dataValidation')
+        ok = (template_xml.count('<dataValidation ') == output_xml.count('<dataValidation ') and
+              sqref_coverage(template_refs) == sqref_coverage(output_refs))
+        failed = failed or not ok
+        print("  %-36s tpl=%3d out=%3d  %s" %
+              (n[:36], len(template_refs), len(output_refs), "OK" if ok else "** DIFF **"))
 
     print("\n== conditionalFormatting sqref coverage (coverage, NOT rule count) ==")
     for n, tp in tm.items():
         op = om.get(n)
-        a = sqrefs(tpl[tp].decode('utf-8', 'replace'))
-        b = sqrefs(out[op].decode('utf-8', 'replace')) if op else set()
-        flag = "OK" if a == b else "** DIFF **"
-        print("  %-36s tpl=%3d out=%3d  lost=%s gained=%s  %s"
-              % (n[:36], len(a), len(b), sorted(a - b), sorted(b - a), flag))
+        a_refs = element_sqrefs(tpl[tp].decode('utf-8', 'replace'), 'conditionalFormatting')
+        b_refs = element_sqrefs(out[op].decode('utf-8', 'replace'), 'conditionalFormatting') if op else []
+        ok = sqref_coverage(a_refs) == sqref_coverage(b_refs)
+        failed = failed or not ok
+        print("  %-36s tpl=%3d out=%3d  %s"
+              % (n[:36], len(a_refs), len(b_refs), "OK" if ok else "** DIFF **"))
 
-    ft, fo = formulas(tpl), formulas(out)
+    ft, fo = formulas(tpl, tm), formulas(out, om)
     print("\n== FORMULAS ==")
     print("  template: %d   output: %d" % (len(ft), len(fo)))
 
     lost = sorted(set(ft) - set(fo))
     new = sorted(set(fo) - set(ft))
     changed = sorted(k for k in set(ft) & set(fo) if ft[k] != fo[k])
+    failed = failed or bool(lost or new or changed)
 
     print("\n  -- SURVIVED (%d) --" % len(set(ft) & set(fo)))
     for k in sorted(set(ft) & set(fo)):
@@ -123,5 +175,7 @@ def main():
         for k in changed:
             print("     %s\n        tpl=%s\n        out=%s" % (k, ft[k], fo[k]))
 
+    return 1 if failed else 0
 
-main()
+
+raise SystemExit(main())

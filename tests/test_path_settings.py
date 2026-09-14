@@ -218,6 +218,32 @@ class PathSettingsTests(unittest.TestCase):
         self.assertEqual({key: var.get() for key, var in restored._path_vars.items()}, req03)
         self.assertEqual(restored.row_mode_var.get(), "All")
 
+    def test_req04_paths_are_independent_and_row_mode_is_always_visible(self):
+        source = Path(self.temporary.name) / "req04-source.xls"
+        target = Path(self.temporary.name) / "04" / "B模板.xlsx"
+        source.touch()
+        target.parent.mkdir()
+        target.touch()
+        req04 = {
+            "source": str(source),
+            "target": str(target),
+            "output": str(Path(self.temporary.name) / "req04-output.xlsx"),
+        }
+
+        window = self.open_app()
+        self.switch(window, "支线 04")
+        for key, value in req04.items():
+            window._path_vars[key].set(value)
+        window.row_mode_var.set("All")
+        window._update_row_mode_controls()
+        self.assertEqual(window.row_mode_var.get(), "Visible")
+        window.destroy()
+
+        restored = self.open_app()
+        self.assertEqual(restored.profile_var.get(), "支线 04")
+        self.assertEqual({key: var.get() for key, var in restored._path_vars.items()}, req04)
+        self.assertEqual(restored.row_mode_var.get(), "Visible")
+
 
 if __name__ == "__main__":
     unittest.main()
