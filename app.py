@@ -87,7 +87,7 @@ class CompletionDialog(tk.Toplevel):
 
 
 class OutputModeDialog(tk.Toplevel):
-    def __init__(self, parent, output_name):
+    def __init__(self, parent, output_name, profile_label=None):
         super().__init__(parent)
         self.withdraw()
         self.title("输出文件已存在")
@@ -101,7 +101,10 @@ class OutputModeDialog(tk.Toplevel):
         body.pack(fill="both", expand=True)
         ttk.Label(body, text=f"{output_name} 已存在。请选择处理方式：", wraplength=440).pack(anchor="w")
         ttk.Label(body, text="替换文件：以文件 B 重新生成输出。", style="Hint.TLabel").pack(anchor="w", pady=(12, 2))
-        ttk.Label(body, text="继续写入：保留现有内容，在末尾留 3 行后追加。", style="Hint.TLabel").pack(anchor="w")
+        append_hint = "继续写入：保留现有内容，在末尾留 3 行后追加。"
+        if profile_label == "支线 04":
+            append_hint += " 会再次追加本次匹配数据，不会自动去重；若要得到单批结果请选择替换文件。"
+        ttk.Label(body, text=append_hint, style="Hint.TLabel", wraplength=440).pack(anchor="w")
 
         actions = ttk.Frame(body)
         actions.pack(fill="x", pady=(22, 0))
@@ -123,8 +126,8 @@ class OutputModeDialog(tk.Toplevel):
         self.destroy()
 
     @classmethod
-    def ask(cls, parent, output_name):
-        dialog = cls(parent, output_name)
+    def ask(cls, parent, output_name, profile_label=None):
+        dialog = cls(parent, output_name, profile_label)
         parent.wait_window(dialog)
         return dialog.result
 
@@ -596,6 +599,8 @@ class ShelfAssistant(tk.Tk):
             self.output_var.set(path)
 
     def _choose_existing_output_mode(self, output):
+        if self._active_profile_label == "支线 04":
+            return OutputModeDialog.ask(self, output.name, self._active_profile_label)
         return OutputModeDialog.ask(self, output.name)
 
     def _set_output_action(self, profile_label, output_mode, completed=False, output_exists=True):

@@ -506,6 +506,7 @@ function Get-Req04SourceRows($Worksheet, $Columns, [string[]]$BusinessKeys, [str
         $columnNumbers = @($Columns.Values | ForEach-Object { [int]$_.Column })
         $firstColumn = ($columnNumbers | Measure-Object -Minimum).Minimum
         $lastColumn = ($columnNumbers | Measure-Object -Maximum).Maximum
+        $skuColumnIndex = [int]$Columns['SKU'].Column - $firstColumn + 1
         $firstLetter = Get-ColumnLetter $firstColumn
         $lastLetter = Get-ColumnLetter $lastColumn
         $dataRange = $Worksheet.Range("${firstLetter}${headerRow}:${lastLetter}${lastRow}")
@@ -537,10 +538,22 @@ function Get-Req04SourceRows($Worksheet, $Columns, [string[]]$BusinessKeys, [str
                 }
             }
             $sku = [string]$values['SKU']
-            $isScaffold = $sku -eq '0' -and -not $hasNonFormulaBusinessValue
+            $skuFormula = $formulasBlock[$rowIndex, $skuColumnIndex]
+            $hasSkuFormula = $skuFormula -is [string] -and $skuFormula.StartsWith('=')
+            # The Req04 source templates pre-fill formula rows below the real
+            # SKU list.  Those rows commonly evaluate to 0 in the price sheet
+            # or to an empty string in the units sheet.  Treat a formula-derived
+            # blank/zero SKU as an empty structural row, never as a product.
+            $formulaPlaceholderSku = $hasSkuFormula -and ($sku -eq '' -or $sku -eq '0')
             if ($isHidden -and $RowMode -eq 'Visible') {
-                if (-not $isScaffold -and (-not [string]::IsNullOrWhiteSpace($sku) -or $hasNonFormulaBusinessValue)) {
+                if (-not $formulaPlaceholderSku -and (-not [string]::IsNullOrWhiteSpace($sku) -or $hasNonFormulaBusinessValue)) {
                     $HiddenSkipped.Value++
+                }
+                continue
+            }
+            if ($formulaPlaceholderSku) {
+                if ($hasNonFormulaBusinessValue) {
+                    throw ('源工作表“{0}”第 {1} 行存在真实业务数据但 SKU 为空。' -f $Worksheet.Name, $row)
                 }
                 continue
             }
@@ -550,7 +563,6 @@ function Get-Req04SourceRows($Worksheet, $Columns, [string[]]$BusinessKeys, [str
                 }
                 continue
             }
-            if ($isScaffold) { continue }
             $key = Normalize-Text $sku
             if ($seen.ContainsKey($key)) {
                 throw ('源工作表“{0}”存在重复 SKU：{1}（第 {2} 行与第 {3} 行）。' -f $Worksheet.Name, $sku, $seen[$key].Row, $row)
