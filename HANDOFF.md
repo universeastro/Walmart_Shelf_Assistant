@@ -2018,3 +2018,59 @@ $j2 | ConvertFrom-Json          # → OK
 - `app.py` 不再锁定 Req04 的导出范围单选按钮；`excel_mapper.ps1` 不再拒绝 Req04 的 `RowMode=All`，两张源工作表均按所选模式参与 SKU 连接。
 - 当前真实 A 没有隐藏商品行：第 2–307 行为 306 条商品，第 308 行后为空 SKU 的公式脚手架，因此原文件的 Visible/All 均应写入 306 行。专项测试另用临时副本在两张源表隐藏同一条真实 SKU，断言 Visible 写入 305 行并统计 2 个隐藏源行、All 写入完整 306 行且不统计跳过；GUI 与路径持久化测试同步验证 All 可选择、可恢复。
 - 验证结果：`tests/verify_req04.ps1` 退出码 0，摘要 `realRows=306 visibleFixtureRows=305 allFixtureRows=306 firstStart=13 appendStart=322`；Python UI/配置测试 55/55 通过；主线映射回归 12/12 通过；PowerShell 语法、Python 编译、UTF-8 BOM 与 `git diff --check` 均通过。
+
+
+## 2026-09-14 Claude 独立复核（第三轮：导出范围改为可选，`bce376e`）：**通过**
+
+### 范围与基线
+
+- 基线提交 `bce376e feat: allow req04 row range selection`（18:20:49），本轮唯一未推送提交；工作区仅剩用户那份未跟踪的参考文件。
+- 复验哈希：`excel_mapper.ps1`=`020D638B887D7D0D4C79E8087ADB41B7`、`app.py`=`602B4C50E8B2F793687B856A050516B1`、`tests/verify_req04.ps1`=`404ECFFCC440EC0619D9D5A00171B4B0`。
+- 批次首尾（18:23:14 → 18:41:36）哈希一致，校验期间未写入。
+
+### 需求一致性（这点先查，因为它决定改动是否合法）
+
+逐段重读 `文件/04/项目需求文档04.docx` 全文：**通篇没有出现「隐藏」「可见行」字样**，该文档只约束映射列、表头优先于列标、以及「已有数据后隔三行」。所以「导出范围由用户选择」**不违背需求文档**——此前「仅可见行」是实现层的项目决策，不是文档要求；本次是用户主动要求与前三个方案拉齐。`PROJECT.md`/`TASKS.md`/`README.md` 均已同步改写，措辞与实现一致。
+
+### 代码审查（读 diff，不读全文）
+
+- `app.py:450` 的 `_update_row_mode_controls` 把锁定条件从 `支线04 or running` 收敛为 `running`，并删掉强制 `Visible` 的赋值。改动最小且正确：运行中仍锁定，切换方案时仍会重算。
+- `excel_mapper.ps1:619` 删除 Req04 的 RowMode 校验。`Get-Req04SourceRows` **未改动**，隐藏行计数仍只在 `RowMode=Visible` 分支累加，`All` 下自然为 0。
+- 未新增列字母兜底、未新增硬编码列号、未把 `$columns` 改成 `[ordered]`。
+
+### 独立复跑
+
+| 套件 | 退出码 | 耗时 | 关键结果 |
+|---|---|---|---|
+| `verify_req04` | 0 | 669.1s | realRows=306 visibleFixtureRows=305 allFixtureRows=306 firstStart=13 appendStart=322 hiddenEdge=2 warningsEdge=2 negativeCases=5 |
+| `verify_mapping` | 0 | 22.2s | match=12 mismatch=0 |
+| `verify_multirow -Rows 372` | 0 | 106.9s | 4464 格全对 |
+| `verify_alignment` | 0 | 33.3s | 1022 格 |
+| `verify_req02` / `verify_req03` | 0 / 0 | 58.1s / 80.8s | 各自语义与原始哈希保护 |
+| `verify_append` / `visible_rows` / `autofilter` | 0 / 0 / 0 | 109.9s / 1.3s / 19.9s | 追加位置、隐藏行、筛选行 |
+
+Python 侧 **62 个测试全过**：`unittest discover`（`test_*.py`）46 + `verify_path_settings.py` 9 + `verify_ui_integration.py` 7。**Codex 记的 55 = 前两者之和**，第三个独立入口它没计入，但同样通过。
+
+不依赖测试脚本的独立判据：默认 Visible 重跑真实 A/B，与用户手工参考文件 `输出结果.xlsx`（`EF7C510E923F4F67D49CB3E491219BD9`）做**整表**值级比对（rows 1–400 × cols 1–119）：**0 差异**；B 自带 7–9 行 0 差异；间隔行全空；七列 `targetMethod` 全为 `header`。OOXML 独立抽查 exit=0（dataValidation 60→60，条件格式覆盖 56→43，公式 0→0，无部件丢失）。**这次改动没有碰坏默认路径。**
+
+### 我设计的两个边界（测试套件没有覆盖，Codex 也未测）
+
+用真实 A 的两份副本分别构造，同一文件只改「隐藏」与「SKU」：
+
+| 用例 | 构造 | Visible | All |
+|---|---|---|---|
+| **A** | 只在 `导入 单位转换` 隐藏第 2 行，`价格` 同行仍可见 | **exit=1**「SKU 在单位转换表中未找到匹配项：XPY0907ACP260824015」 | exit=0，写 306 行 |
+| **B** | 两表第 2 行 SKU 清空、保留业务值、并隐藏 | exit=0，写 305 行，跳过 2 | **exit=1**「源工作表…第 2 行存在真实业务数据但 SKU 为空」 |
+
+结论：**二者都不违反已冻结契约**（「缺失 SKU、跨表无法匹配…报错」），也不会写出错误数据——我确认两次失败**都没有留下输出文件**。但它们是**用户能踩进去的坑**，且 README 没有提示：
+
+- 用户若只筛选/隐藏**一张**源表，Visible 模式会因为另一张表里那个 SKU 还在而**整体失败**，与「隐藏行只是被排除」的直觉相反。同一 SKU 必须**两张表同时隐藏或同时可见**。
+- 用户在 Visible 下能跑过的文件，切到 All 后可能因为一个隐藏的坏行而**直接失败**。
+
+**建议（不阻断交付）**：① README 补一句「两张源表的同一 SKU 必须同时隐藏或同时可见，否则按跨表无法匹配报错」；② `tests/verify_req04.ps1` 增补这两个夹具——它们现在是 GUI 可达路径，却没有回归保护。是否要做由 Codex/用户决定，我未改任何非 HANDOFF 文件。
+
+### 未覆盖（如实列出）
+
+- GUI 真机点击（拖拽落点、完成对话框）仍未做，仅程序化覆盖。
+- 上述两个边界由我临时夹具验证，**未进入常驻测试**，下次重构会失去保护。
+- Excel 打开输出后的重算行为、万行级性能、多会话并发仍未测。
