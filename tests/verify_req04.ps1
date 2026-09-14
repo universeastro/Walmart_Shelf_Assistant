@@ -19,9 +19,15 @@ $duplicateSource = Join-Path $tempRoot 'duplicate-source.xls'
 $unmatchedSource = Join-Path $tempRoot 'unmatched-source.xls'
 $missingSkuSource = Join-Path $tempRoot 'missing-sku-source.xls'
 $reorderedSource = Join-Path $tempRoot 'reordered-source.xls'
+$asymmetricSource = Join-Path $tempRoot 'asymmetric-hidden-source.xls'
+$hiddenMissingSource = Join-Path $tempRoot 'hidden-missing-sku-source.xls'
 $conflictTarget = Join-Path $tempRoot 'conflict-target.xlsx'
 $edgeOutput = Join-Path $tempRoot 'edge-output.xlsx'
 $reorderedOutput = Join-Path $tempRoot 'reordered-output.xlsx'
+$asymmetricVisibleOutput = Join-Path $tempRoot 'asymmetric-visible-output.xlsx'
+$asymmetricAllOutput = Join-Path $tempRoot 'asymmetric-all-output.xlsx'
+$hiddenMissingVisibleOutput = Join-Path $tempRoot 'hidden-missing-visible-output.xlsx'
+$hiddenMissingAllOutput = Join-Path $tempRoot 'hidden-missing-all-output.xlsx'
 $excel = $null
 $sourceWb = $null
 $firstWb = $null
@@ -32,6 +38,8 @@ $book = $null
 $edgeWb = $null
 $reorderedSourceWb = $null
 $reorderedOutputWb = $null
+$asymmetricAll = $null
+$hiddenMissingVisible = $null
 $testStage = '初始化'
 
 function Normalize([object]$value) {
@@ -207,7 +215,7 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) "Req04 输出的公式/条件格式/数据验证未保留：$($comparison -join [Environment]::NewLine)"
 
     $testStage = '制作边界夹具'
-    foreach ($path in @($edgeSource, $duplicateSource, $unmatchedSource, $missingSkuSource, $reorderedSource, $rowModeSource)) {
+    foreach ($path in @($edgeSource, $duplicateSource, $unmatchedSource, $missingSkuSource, $reorderedSource, $rowModeSource, $asymmetricSource, $hiddenMissingSource)) {
         Copy-Item -LiteralPath $SourcePath -Destination $path -Force
     }
     Copy-Item -LiteralPath $TargetPath -Destination $conflictTarget -Force
@@ -221,7 +229,9 @@ try {
         @{ Path = $unmatchedSource; Kind = 'Unmatched' },
         @{ Path = $missingSkuSource; Kind = 'Missing' },
         @{ Path = $reorderedSource; Kind = 'Reordered' },
-        @{ Path = $rowModeSource; Kind = 'RowMode' }
+        @{ Path = $rowModeSource; Kind = 'RowMode' },
+        @{ Path = $asymmetricSource; Kind = 'AsymmetricHidden' },
+        @{ Path = $hiddenMissingSource; Kind = 'HiddenMissingSku' }
     )) {
         $book = $editor.Workbooks.Open($case.Path, 0, $false)
         $unitSheet = $book.Worksheets.Item('导入 单位转换')
@@ -248,6 +258,17 @@ try {
             $sku3 = Get-Value $priceSheet 'A3'
             Set-Value $priceSheet 'A2' $sku3
             Set-Value $priceSheet 'A3' $sku2
+        } elseif ($case.Kind -eq 'AsymmetricHidden') {
+            Set-RowHidden $unitSheet 2 $true
+        } elseif ($case.Kind -eq 'HiddenMissingSku') {
+            Set-RowHidden $unitSheet 2 $true
+            Set-RowHidden $priceSheet 2 $true
+            Clear-Value $unitSheet 'A2'
+            Clear-Value $priceSheet 'A2'
+            # Replace formula results with literal values so the hidden rows
+            # remain real business rows and are counted/skipped deliberately.
+            Set-Value $unitSheet 'E2' '1'
+            Set-Value $priceSheet 'I2' '1'
         } else {
             Set-RowHidden $unitSheet 2 $true
             Set-RowHidden $priceSheet 2 $true
@@ -285,6 +306,39 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) "Req04 全部数据模式运行失败：$allModeJson"
     $allMode = $allModeJson | ConvertFrom-Json
     Assert-True ($allMode.rowsWritten -eq 306 -and $allMode.rowsHiddenSkipped -eq 0) "All 模式不正确：写入 $($allMode.rowsWritten)，跳过 $($allMode.rowsHiddenSkipped)。"
+
+    $testStage = '双源隐藏状态一致性'
+    $asymmetricVisibleJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
+        -SourcePath $asymmetricSource -TargetPath $TargetPath -OutputPath $asymmetricVisibleOutput `
+        -Profile Req04 -RowMode Visible -OutputMode Replace | Select-Object -Last 1
+    $asymmetricVisibleCode = $LASTEXITCODE
+    $asymmetricVisible = $asymmetricVisibleJson | ConvertFrom-Json
+    Assert-True ($asymmetricVisibleCode -ne 0 -and $asymmetricVisible.success -eq $false) '单表隐藏的 Visible 模式未返回失败。'
+    Assert-True ($asymmetricVisible.message -like '*未找到匹配项*') "单表隐藏的 Visible 模式错误信息不正确：$($asymmetricVisible.message)"
+    Assert-True (-not (Test-Path -LiteralPath $asymmetricVisibleOutput)) '单表隐藏的 Visible 模式失败后不应生成输出文件。'
+
+    $asymmetricAllJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
+        -SourcePath $asymmetricSource -TargetPath $TargetPath -OutputPath $asymmetricAllOutput `
+        -Profile Req04 -RowMode All -OutputMode Replace | Select-Object -Last 1
+    Assert-True ($LASTEXITCODE -eq 0) "单表隐藏的 All 模式运行失败：$asymmetricAllJson"
+    $asymmetricAll = $asymmetricAllJson | ConvertFrom-Json
+    Assert-True ($asymmetricAll.success -eq $true -and $asymmetricAll.rowsWritten -eq 306 -and $asymmetricAll.rowsHiddenSkipped -eq 0) "单表隐藏的 All 模式不正确：写入 $($asymmetricAll.rowsWritten)，跳过 $($asymmetricAll.rowsHiddenSkipped)。"
+
+    $hiddenMissingVisibleJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
+        -SourcePath $hiddenMissingSource -TargetPath $TargetPath -OutputPath $hiddenMissingVisibleOutput `
+        -Profile Req04 -RowMode Visible -OutputMode Replace | Select-Object -Last 1
+    Assert-True ($LASTEXITCODE -eq 0) "隐藏缺失 SKU 的 Visible 模式运行失败：$hiddenMissingVisibleJson"
+    $hiddenMissingVisible = $hiddenMissingVisibleJson | ConvertFrom-Json
+    Assert-True ($hiddenMissingVisible.success -eq $true -and $hiddenMissingVisible.rowsWritten -eq 305 -and $hiddenMissingVisible.rowsHiddenSkipped -eq 2) "隐藏缺失 SKU 的 Visible 模式不正确：写入 $($hiddenMissingVisible.rowsWritten)，跳过 $($hiddenMissingVisible.rowsHiddenSkipped)。"
+
+    $hiddenMissingAllJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
+        -SourcePath $hiddenMissingSource -TargetPath $TargetPath -OutputPath $hiddenMissingAllOutput `
+        -Profile Req04 -RowMode All -OutputMode Replace | Select-Object -Last 1
+    $hiddenMissingAllCode = $LASTEXITCODE
+    $hiddenMissingAll = $hiddenMissingAllJson | ConvertFrom-Json
+    Assert-True ($hiddenMissingAllCode -ne 0 -and $hiddenMissingAll.success -eq $false) '隐藏缺失 SKU 的 All 模式未返回失败。'
+    Assert-True ($hiddenMissingAll.message -like '*SKU 为空*') "隐藏缺失 SKU 的 All 模式错误信息不正确：$($hiddenMissingAll.message)"
+    Assert-True (-not (Test-Path -LiteralPath $hiddenMissingAllOutput)) '隐藏缺失 SKU 的 All 模式失败后不应生成输出文件。'
 
     $testStage = '边界值与隐藏行映射'
     $edgeJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
@@ -375,10 +429,10 @@ try {
     $afterHash = (Get-FileHash -Algorithm MD5 -LiteralPath $TargetPath).Hash
     Assert-True ($originalSourceHash -eq $afterSourceHash) '原始 A 文件哈希发生变化。'
     Assert-True ($originalHash -eq $afterHash) '原始 B 模板哈希发生变化。'
-    [pscustomobject]@{ success = $true; realRows = $first.rowsWritten; visibleFixtureRows = $visibleMode.rowsWritten; allFixtureRows = $allMode.rowsWritten; firstStart = $first.writeStartRow; appendStart = $second.writeStartRow; hiddenEdge = $edge.rowsHiddenSkipped; warningsEdge = $edge.warnings.Count; reorderedJoin = $true; negativeCases = 5; outputExtension = [IO.Path]::GetExtension($first.output) } | ConvertTo-Json -Compress
+    [pscustomobject]@{ success = $true; realRows = $first.rowsWritten; visibleFixtureRows = $visibleMode.rowsWritten; allFixtureRows = $allMode.rowsWritten; firstStart = $first.writeStartRow; appendStart = $second.writeStartRow; hiddenEdge = $edge.rowsHiddenSkipped; warningsEdge = $edge.warnings.Count; reorderedJoin = $true; hiddenConsistencyCases = 4; negativeCases = 5; outputExtension = [IO.Path]::GetExtension($first.output) } | ConvertTo-Json -Compress
     exit 0
 } catch {
-    foreach ($openBook in @($sourceWb, $firstWb, $secondWb, $templateWb, $book, $edgeWb, $reorderedSourceWb, $reorderedOutputWb)) {
+    foreach ($openBook in @($sourceWb, $firstWb, $secondWb, $templateWb, $book, $edgeWb, $reorderedSourceWb, $reorderedOutputWb, $asymmetricAll, $hiddenMissingVisible)) {
         if ($openBook) { try { $openBook.Close($false) } catch {} }
     }
     if ($editor) { try { $editor.Quit() } catch {} }
