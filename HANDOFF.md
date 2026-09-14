@@ -1917,3 +1917,67 @@ $j2 | ConvertFrom-Json          # → OK
 - 用户已有 `文件/04/输出结果.xlsx` 与修改中的 `项目需求文档04.docx` 均未纳入提交、未被覆盖；文档当前 MD5 已同步为 `A52D5B111165F315B1B75536A0C7349A`。
 - 已结束本轮及此前确认的空闲残留 Excel 进程；最终只剩一个带窗口标题 `Excel` 的用户会话（PID 41316），未结束。`verify_visible_rows.ps1` 最终按正确的 `-OutputPath` 参数对临时映射副本复跑通过：1 行、12 格一致。
 - Req04 实现与验证已提交到当前分支：`7722f7e feat: add req04 excel mapping workflow`。本记录的提交号将由后续纯文档提交保存；未执行合并或推送。
+
+
+## 2026-09-14 Claude 独立复核（第二轮，verify-and-archive）：**通过**
+
+### 范围与基线
+
+- 基线提交 `2d84ef2`。工作区仅剩 `文件/04/项目需求文档04.docx`(M) 与 `文件/04/输出结果.xlsx`(??)，二者均非本轮复验对象。
+- 复验对象哈希：`excel_mapper.ps1`=`0049F4FB2B9F5C5EAA14C425FC3AC40C`、`app.py`=`4E3E4056DC63106DE5A32CDC3EBFFF8F`、`tests/verify_req04.ps1`=`AA86A7523FBE5DAA66607E6ABB11BBE9`、`tests/compare_ooxml.py`=`6866801403686AD74513D5DB8082E5C1`。
+- 批次首尾（16:59:23 → 17:12:50）哈希一致，校验期间 Codex 未写入。
+
+### 独立复跑（我本机重跑，非引用 Codex 结论）
+
+| 套件 | 退出码 | 耗时 | 关键结果 |
+|---|---|---|---|
+| `verify_req04`（真实 A/B 专项） | 0 | 390.5s | rows=306 firstStart=13 appendStart=322 hiddenEdge=2 warningsEdge=2 reorderedJoin=true negativeCases=6 outputExtension=.xlsx |
+| `verify_mapping`（主线夹具） | 0 | 19.0s | match=12 mismatch=0 both-empty=0 |
+| `verify_multirow -Rows 372` | 0 | 91.9s | 12 映射 / 4464 格全对 |
+| `verify_alignment` | 0 | 29.7s | 1022 格，Color 左对齐、其余映射格填充对齐，未写入区不变 |
+| `verify_req02` | 0 | 54.0s | Visible/All × Append/Replace 全通过，原始哈希不变 |
+| `verify_req03` | 0 | 84.0s | 合并单元格/Replace/非 .xls 输出均被拒，原始哈希不变 |
+| `verify_append` | 0 | 112.5s | 追加位置、两种行模式、旧数据、间隔行、模板哈希、公式保护 |
+| `verify_visible_rows` | 0 | 4.9s | 12 格一致，起始行 7 |
+| `verify_autofilter` | 0 | 20.6s | 筛选隐藏行被跳过，唯一可见行落位正确 |
+| `py -m unittest discover -s tests` | 0 | 14.3s | Ran 46 tests, OK |
+
+### 三项阻断项确认已修复
+
+- **R04-B1（写入起点）**：`excel_mapper.ps1:778` 已改为 `if ($result.existingLastRow -gt 0) { $result.existingLastRow + 4 } else { $targetInfo.DataStart }`，不再看 `$OutputMode`。实测真实 A/B：`existingLastRow=9 → writeStartRow=13`，B 自带 7–9 行原样保留（我另行逐格比对，数值差 0）。
+- **R04-B2（`[ref]` 写不回字典项）**：`:736` 已改为直接赋值 `$result.rowsHiddenSkipped = $hiddenSkipped`。边界用例返回 `rowsHiddenSkipped=2`，与注入的 2 个隐藏行相符。
+- **R04-B3（控制台编码）**：`tests/verify_req04.ps1:7` 已补 `[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)`。该脚本本机由「根本跑不完」变为 exit=0。
+- 附带改进：Req04 分支的 `DataStart` 现由描述行推导（`excel_mapper.ps1:265`，扫 `used.Row+4..+10` 的类型标记行），不再是硬编码 7。
+
+### 不依赖测试脚本的独立判据：与用户手工输出对拍
+
+用真实 `文件/04/A模板.xls` + `B模板.xlsx` 另跑一次到临时文件，与用户自己手工制作的 `文件/04/输出结果.xlsx` 逐格比对（2142 格 / 7 列 / 行 13–318）：
+
+- **6 列全中**：K、AN、AP、J、CR、AR 与用户参考完全一致，0 处差异。
+- **仅 AT 列 235 格不同**。查证过程与结论：
+  - A模板 row2 实测 `H/I/J(长/宽/高 cm)=50/22/8`，`K/L/M(长/宽/高 in)=19.685/8.6614/3.1496`。
+  - B模板**自带**的 7–9 行：AN/AP/AT = 19.685(**K 长in**) / 3.1496(**M 高in**) / 8.6614(**L 宽in**)——即模板自己的惯例就是「深=长、宽=宽、高=高」。
+  - 映射器输出 AT = L = 宽in，与修订后需求（`L 列标题宽`→AT）和 B 模板自带示例**完全一致**。
+  - 而用户参考文件 `输出结果.xlsx` 的 AT 在 **306/306 行逐行等于 AP（高）**，即把「高」写进了「宽」列。
+  - 判定：AT 上不自洽的是**参考文件**（其修改时间 13:31 早于需求文档修订的 14:41），不是实现。**请用户确认是否需要用当前实现重做该参考文件**，否则它会持续被当成错误的验收基准。
+- 其它判定：输出的 D 列 306 行与参考一致（Req04 不写 SKU，符合约定）；间隔行 10–12 与 319–321 全空；输出含映射值的行数 309 = 3（模板自带）+ 306（本批），无多写、无漏写。
+
+### 格式保留（我独立跑 `tests/compare_ooxml.py`）
+
+`B模板.xlsx` vs 我的临时输出：exit=0。四张工作表按**名称**对齐到同一 part；dataValidation 60→60；conditionalFormatting 按 sqref 覆盖比较为 56→43（Excel 合并等价相邻规则的正常现象，判据是覆盖范围，非规则数）；公式 0→0，无部件丢失。
+
+### 接口审视
+
+- `targetMethod` 七列全部为 `header`，**没有任何一列退化成 `fallback-column`**——列字母兜底未被触发（这是本项目最需要人工确认的降级路径）。
+- `app.py` 改动方向正确：`支线 04` 锁定 `Visible`、输出扩展名跟随 B、GUI 时间线追加 `warnings` 输出、`_update_row_mode_controls` 在切换页与任务结束时都会被调用。
+
+### 我的过程失误（记录以免后人误读为产品缺陷）
+
+本轮第一次批处理脚本我用 `& powershell.exe @$a`，而 PowerShell 的 splat 语法是 `@comm`（不带 `$`）。结果整个参数数组被当成一条字符串传给子进程，9 个套件在 **0.2 秒**内集体以 `UnrecognizedToken` 失败。这是**调用方错误，与产品无关**；我单独直跑 `verify_req02.ps1` 得到 exit=0 后定位并改正，改用 `@comm` 后 9/9 全部 exit=0。
+
+### 未覆盖（如实列出）
+
+- **GUI 真机操作未做**：拖拽落点、完成对话框按钮未手工点击，仅有 `tests/test_ui_layout.py`、`tests/verify_ui_integration.py` 的程序化覆盖。
+- **Excel 打开输出后的重算行为未测**：结果文件的公式重算、条件格式在真实 Excel 会话中的视觉呈现未验证。
+- **大规模性能未测**：仅到 306/372 行量级，未做数万行压测。
+- **多用户/并发场景未测**：两个 Excel 会话同时打开同一 B 模板的行为未覆盖。
