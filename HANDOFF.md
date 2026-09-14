@@ -7,6 +7,7 @@
 - 用户截图中 B 第 322 行起的第二批数据符合 `AppendExisting` 语义：原有数据末行 318，按 `末行 + 4` 从 322 追加整批数据。它不是公式尾部被读入，而是重复运行时选择“继续写入”的结果。
 - Req04 已增强输出模式提示：继续写入会再次追加本次匹配数据、不会自动去重；要获得视频所示的单批第 13–318 行结果，应选择“替换文件”。
 - 验证：Req04 专项退出码 `0`，真实行数 306；Python UI/配置测试 `55/55` 通过。原始 A/B 文件未修改。
+- 本轮提交：`e3ac753 fix: ignore req04 formula placeholder rows`。已用真实 A/B 以 `Replace + Visible` 生成未跟踪的 `文件/04/输出结果_修正版.xlsx`，摘要为 `rowsRead=306`、`rowsWritten=306`、`existingLastRow=9`、`writeStartRow=13`；未覆盖用户原有 `输出结果.xlsx`。
 
 ## 2026-09-14 Codex 处理 Claude 第三轮边界建议（T38 补充）
 
