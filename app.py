@@ -447,11 +447,9 @@ class ShelfAssistant(tk.Tk):
     def _update_row_mode_controls(self):
         if not hasattr(self, "row_mode_buttons"):
             return
-        locked = self._active_profile_label == "支线 04" or self.running
+        locked = self.running
         for button in self.row_mode_buttons:
             button.configure(state="disabled" if locked else "normal")
-        if self._active_profile_label == "支线 04":
-            self.row_mode_var.set("Visible")
 
     def _on_profile_selected(self, _event=None):
         self._on_profile_var_changed()

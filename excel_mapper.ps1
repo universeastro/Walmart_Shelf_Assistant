@@ -619,9 +619,6 @@ try {
     if ($Profile -ne 'Req02' -and $WriteMode -ne 'Append') {
         throw 'WriteMode Replace 仅适用于支线 Req02。'
     }
-    if ($Profile -eq 'Req04' -and $RowMode -ne 'Visible') {
-        throw '支线 Req04 只支持“仅可见行”导出。'
-    }
     if ($OutputMode -eq 'AppendExisting' -and $WriteMode -ne 'Append') {
         throw '继续写入现有输出不能与 WriteMode Replace 同时使用。'
     }

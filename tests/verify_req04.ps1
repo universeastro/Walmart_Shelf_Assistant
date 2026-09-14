@@ -11,6 +11,9 @@ $ooxmlComparer = Join-Path $root 'tests\compare_ooxml.py'
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('req04-verify-' + [guid]::NewGuid().ToString('N'))
 $firstOutput = Join-Path $tempRoot 'first.xlsx'
 $secondOutput = Join-Path $tempRoot 'second.xlsx'
+$rowModeSource = Join-Path $tempRoot 'row-mode-source.xls'
+$visibleModeOutput = Join-Path $tempRoot 'visible-mode-output.xlsx'
+$allModeOutput = Join-Path $tempRoot 'all-mode-output.xlsx'
 $edgeSource = Join-Path $tempRoot 'edge-source.xls'
 $duplicateSource = Join-Path $tempRoot 'duplicate-source.xls'
 $unmatchedSource = Join-Path $tempRoot 'unmatched-source.xls'
@@ -204,7 +207,7 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) "Req04 输出的公式/条件格式/数据验证未保留：$($comparison -join [Environment]::NewLine)"
 
     $testStage = '制作边界夹具'
-    foreach ($path in @($edgeSource, $duplicateSource, $unmatchedSource, $missingSkuSource, $reorderedSource)) {
+    foreach ($path in @($edgeSource, $duplicateSource, $unmatchedSource, $missingSkuSource, $reorderedSource, $rowModeSource)) {
         Copy-Item -LiteralPath $SourcePath -Destination $path -Force
     }
     Copy-Item -LiteralPath $TargetPath -Destination $conflictTarget -Force
@@ -217,7 +220,8 @@ try {
         @{ Path = $duplicateSource; Kind = 'Duplicate' },
         @{ Path = $unmatchedSource; Kind = 'Unmatched' },
         @{ Path = $missingSkuSource; Kind = 'Missing' },
-        @{ Path = $reorderedSource; Kind = 'Reordered' }
+        @{ Path = $reorderedSource; Kind = 'Reordered' },
+        @{ Path = $rowModeSource; Kind = 'RowMode' }
     )) {
         $book = $editor.Workbooks.Open($case.Path, 0, $false)
         $unitSheet = $book.Worksheets.Item('导入 单位转换')
@@ -239,11 +243,14 @@ try {
         } elseif ($case.Kind -eq 'Missing') {
             Clear-Value $unitSheet 'A2'
             Set-Value $unitSheet 'E2' '1'
-        } else {
+        } elseif ($case.Kind -eq 'Reordered') {
             $sku2 = Get-Value $priceSheet 'A2'
             $sku3 = Get-Value $priceSheet 'A3'
             Set-Value $priceSheet 'A2' $sku3
             Set-Value $priceSheet 'A3' $sku2
+        } else {
+            Set-RowHidden $unitSheet 2 $true
+            Set-RowHidden $priceSheet 2 $true
         }
         $book.Save()
         $book.Close($false)
@@ -264,6 +271,20 @@ try {
     [void][Runtime.InteropServices.Marshal]::ReleaseComObject($editor)
     $editor = $null
     $book = $null
+
+    $visibleModeJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
+        -SourcePath $rowModeSource -TargetPath $TargetPath -OutputPath $visibleModeOutput `
+        -Profile Req04 -RowMode Visible -OutputMode Replace | Select-Object -Last 1
+    Assert-True ($LASTEXITCODE -eq 0) "Req04 可见行模式运行失败：$visibleModeJson"
+    $visibleMode = $visibleModeJson | ConvertFrom-Json
+    Assert-True ($visibleMode.rowsWritten -eq 305 -and $visibleMode.rowsHiddenSkipped -eq 2) "Visible 模式不正确：写入 $($visibleMode.rowsWritten)，跳过 $($visibleMode.rowsHiddenSkipped)。"
+
+    $allModeJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
+        -SourcePath $rowModeSource -TargetPath $TargetPath -OutputPath $allModeOutput `
+        -Profile Req04 -RowMode All -OutputMode Replace | Select-Object -Last 1
+    Assert-True ($LASTEXITCODE -eq 0) "Req04 全部数据模式运行失败：$allModeJson"
+    $allMode = $allModeJson | ConvertFrom-Json
+    Assert-True ($allMode.rowsWritten -eq 306 -and $allMode.rowsHiddenSkipped -eq 0) "All 模式不正确：写入 $($allMode.rowsWritten)，跳过 $($allMode.rowsHiddenSkipped)。"
 
     $testStage = '边界值与隐藏行映射'
     $edgeJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
@@ -328,8 +349,7 @@ try {
         @{ Label = '重复 SKU'; Source = $duplicateSource; Target = $TargetPath; Output = (Join-Path $tempRoot 'duplicate.xlsx'); RowMode = 'Visible'; Pattern = '重复 SKU' },
         @{ Label = '无法匹配 SKU'; Source = $unmatchedSource; Target = $TargetPath; Output = (Join-Path $tempRoot 'unmatched.xlsx'); RowMode = 'Visible'; Pattern = '未找到匹配项' },
         @{ Label = '缺失 SKU'; Source = $missingSkuSource; Target = $TargetPath; Output = (Join-Path $tempRoot 'missing.xlsx'); RowMode = 'Visible'; Pattern = 'SKU 为空' },
-        @{ Label = '合并区域冲突'; Source = $SourcePath; Target = $conflictTarget; Output = (Join-Path $tempRoot 'conflict.xlsx'); RowMode = 'Visible'; Pattern = '包含公式或合并单元格' },
-        @{ Label = 'All 模式'; Source = $SourcePath; Target = $TargetPath; Output = (Join-Path $tempRoot 'all.xlsx'); RowMode = 'All'; Pattern = '只支持“仅可见行”' }
+        @{ Label = '合并区域冲突'; Source = $SourcePath; Target = $conflictTarget; Output = (Join-Path $tempRoot 'conflict.xlsx'); RowMode = 'Visible'; Pattern = '包含公式或合并单元格' }
     )) {
         $failureJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
             -SourcePath $negative.Source -TargetPath $negative.Target -OutputPath $negative.Output `
@@ -355,7 +375,7 @@ try {
     $afterHash = (Get-FileHash -Algorithm MD5 -LiteralPath $TargetPath).Hash
     Assert-True ($originalSourceHash -eq $afterSourceHash) '原始 A 文件哈希发生变化。'
     Assert-True ($originalHash -eq $afterHash) '原始 B 模板哈希发生变化。'
-    [pscustomobject]@{ success = $true; rows = 306; firstStart = $first.writeStartRow; appendStart = $second.writeStartRow; hiddenEdge = $edge.rowsHiddenSkipped; warningsEdge = $edge.warnings.Count; reorderedJoin = $true; negativeCases = 6; outputExtension = [IO.Path]::GetExtension($first.output) } | ConvertTo-Json -Compress
+    [pscustomobject]@{ success = $true; realRows = $first.rowsWritten; visibleFixtureRows = $visibleMode.rowsWritten; allFixtureRows = $allMode.rowsWritten; firstStart = $first.writeStartRow; appendStart = $second.writeStartRow; hiddenEdge = $edge.rowsHiddenSkipped; warningsEdge = $edge.warnings.Count; reorderedJoin = $true; negativeCases = 5; outputExtension = [IO.Path]::GetExtension($first.output) } | ConvertTo-Json -Compress
     exit 0
 } catch {
     foreach ($openBook in @($sourceWb, $firstWb, $secondWb, $templateWb, $book, $edgeWb, $reorderedSourceWb, $reorderedOutputWb)) {

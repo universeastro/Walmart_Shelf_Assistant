@@ -2011,3 +2011,10 @@ $j2 | ConvertFrom-Json          # → OK
 用户明确选择**不提交** `文件/04/输出结果.xlsx`，理由是本仓库惯例——`git ls-files 文件/` 显示 01/02/03/04 四个阶段只追踪**输入模板与需求文档**，从未追踪任何阶段的输出文件；且二进制一旦进入历史便永久留存。
 
 追溯方式：以本条记录与上一条的最终 MD5 `EF7C510E923F4F67D49CB3E491219BD9` 为准，**不要再提议把它纳入版本库或挪进 `tests/` 作夹具**。
+
+### 用户调整：Req04 导出范围改为可选
+
+- 用户要求支线 04 与前三个方案保持一致，由用户选择“仅可见行（跳过隐藏行）”或“全部数据行（包含隐藏行）”；默认仍为 `Visible`，各方案继续独立记忆选择。
+- `app.py` 不再锁定 Req04 的导出范围单选按钮；`excel_mapper.ps1` 不再拒绝 Req04 的 `RowMode=All`，两张源工作表均按所选模式参与 SKU 连接。
+- 当前真实 A 没有隐藏商品行：第 2–307 行为 306 条商品，第 308 行后为空 SKU 的公式脚手架，因此原文件的 Visible/All 均应写入 306 行。专项测试另用临时副本在两张源表隐藏同一条真实 SKU，断言 Visible 写入 305 行并统计 2 个隐藏源行、All 写入完整 306 行且不统计跳过；GUI 与路径持久化测试同步验证 All 可选择、可恢复。
+- 验证结果：`tests/verify_req04.ps1` 退出码 0，摘要 `realRows=306 visibleFixtureRows=305 allFixtureRows=306 firstStart=13 appendStart=322`；Python UI/配置测试 55/55 通过；主线映射回归 12/12 通过；PowerShell 语法、Python 编译、UTF-8 BOM 与 `git diff --check` 均通过。

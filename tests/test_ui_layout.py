@@ -405,11 +405,13 @@ class UILayoutTests(unittest.TestCase):
         self.assertEqual(self.window.output_var.get(), "")
         warning.assert_called_once()
 
-    def test_req04_locks_visible_rows_and_uses_target_extension(self):
+    def test_req04_allows_row_mode_selection_and_uses_target_extension(self):
         self.window.profile_var.set("支线 04")
         self.assertEqual(self.window.row_mode_var.get(), "Visible")
         for button in self.window.row_mode_buttons:
-            self.assertIn("disabled", button.state())
+            self.assertNotIn("disabled", button.state())
+        self.window.row_mode_var.set("All")
+        self.assertEqual(self.window.row_mode_var.get(), "All")
 
         target = Path(self.temp.name) / "04" / "B模板.xlsm"
         target.parent.mkdir()
@@ -421,6 +423,17 @@ class UILayoutTests(unittest.TestCase):
         with patch("app.filedialog.asksaveasfilename", return_value="") as choose:
             self.window._choose_output()
         self.assertEqual(choose.call_args.kwargs["defaultextension"], ".xlsm")
+
+        source = Path(self.temp.name) / "a.xls"
+        source.touch()
+        self.window.source_var.set(str(source))
+        with patch("app.threading.Thread") as worker, patch.object(self.window.progress, "start"):
+            self.window.run_mapping()
+        args = worker.call_args.kwargs["args"]
+        self.assertEqual(args[3], "All")
+        self.assertEqual(args[4], "Req04")
+        with patch("app.messagebox.showerror"):
+            self.window._finish({"success": False, "message": "test cleanup"}, 1)
 
     def test_req04_rejects_output_extension_mismatch_before_starting(self):
         self.window.profile_var.set("支线 04")
