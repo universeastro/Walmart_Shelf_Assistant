@@ -1916,3 +1916,4 @@ $j2 | ConvertFrom-Json          # → OK
 - `tests/compare_ooxml.py` 已改为按工作表名映射公式，并按规范化覆盖范围比较条件格式/数据验证；Req04 首次输出的 OOXML 比对退出码 **0**。A/B 原始哈希保持 `5082C3928C1FAF6E218F5188E34C0772` / `B618A89BED1A3C024CD459802A19FC6D`。
 - 用户已有 `文件/04/输出结果.xlsx` 与修改中的 `项目需求文档04.docx` 均未纳入提交、未被覆盖；文档当前 MD5 已同步为 `A52D5B111165F315B1B75536A0C7349A`。
 - 已结束本轮及此前确认的空闲残留 Excel 进程；最终只剩一个带窗口标题 `Excel` 的用户会话（PID 41316），未结束。`verify_visible_rows.ps1` 最终按正确的 `-OutputPath` 参数对临时映射副本复跑通过：1 行、12 格一致。
+- Req04 实现与验证已提交到当前分支：`7722f7e feat: add req04 excel mapping workflow`。本记录的提交号将由后续纯文档提交保存；未执行合并或推送。
