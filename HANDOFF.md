@@ -7,6 +7,7 @@
 - `tests/verify_req04.ps1` 新增 4 个断言场景：单表隐藏时 Visible 失败且 All 成功；两表同时隐藏且 SKU 缺失时 Visible 跳过、All 失败。夹具将隐藏行业务字段改为字面值，避免公式脚手架被误计为空行。
 - Req04 专项验证退出码 `0`：真实数据 306 行，Visible/All 行数 305/306，追加起点 322，隐藏边界跳过 2 行，数值转换警告 2 条，新增隐藏一致性场景 4 个，拒绝型场景 5 个，输出扩展名 `.xlsx`。
 - 本轮仅修改 `README.md` 与 `tests/verify_req04.ps1`；未修改 `app.py`、`excel_mapper.ps1` 或用户未跟踪的 `文件/04/输出结果.xlsx`。
+- 本轮提交：`cd6aa07 test: cover req04 hidden-row consistency`。
 
 ## 2026-09-14 Codex Req04 分支初始化（T31）
 
