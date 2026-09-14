@@ -9,7 +9,7 @@
 |---|---|---|---|---|
 | T31 | Codex | 已完成 | `PROJECT.md`、`TASKS.md`、`HANDOFF.md` | 无；建立 Req04 共享需求与分工 |
 | T32 | Claude | 已完成 | 只读需求/素材/现有实现审查；结论写入 `HANDOFF.md` | T31；复审更新后的标准文档、输入身份、验收边界 |
-| T33 | Codex | 待开始 | `文件/04/` 素材登记、测试夹具、`PROJECT.md`、`HANDOFF.md` | T32；用户提供/确认 A/B 工作簿及第二个视频 |
+| T33 | Codex | 进行中 | `文件/04/` 素材登记、测试夹具、`PROJECT.md`、`HANDOFF.md` | T32；A/B 已确认，仍需冻结行关联与写入口径 |
 | T34 | Codex | 待开始 | `excel_mapper.ps1`、Req04 映射配置 | T32/T33；字段契约冻结 |
 | T35 | Codex | 待开始 | `app.py`、`README.md`、构建/依赖配置 | T34 接口稳定 |
 | T36 | Codex | 待开始 | `tests/`（Req04 专项与 01/02/03 回归） | T34/T35；真实或合成 A/B 可验证 |
@@ -23,7 +23,7 @@
 - 跨工作表源数据按同一数据行索引关联；摘要继续兼容 `success/output/rowsRead/rowsWritten/mappings/skipped`，新增字段不得破坏旧 GUI。
 - Req04 默认沿用 `Append` 与 `Visible`；若业务要求 Replace，需单独登记用户决策后再开放。
 - 视频/模板已确认 `AP=Height`、`AR=Weight`、`AT=Width`；更新后的标准文档已确认 `宽 -> AT`。
-- T34 仍不得开工，直到 T33 解除：用户确认 A/B 文件路径或授权制作 fixture、第二个视频状态、两源表行关联、输出扩展名及数值/隐藏行语义。
+- T34 仍不得开工，直到 T33 解除：两源表行关联、输出扩展名、数值/隐藏行语义及重量双写口径完成确认；A/B 路径和第二个视频状态已解决。
 
 > 当前阶段：**03 并行功能**（分支 `feature/req03-parallel`，基线 `14ac950`）。
 > T01–T22 为已关闭的 01/02 阶段记录，保留作回归依据，编号不复用。

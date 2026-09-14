@@ -1351,3 +1351,12 @@ tests.verify_path_settings` 48/48；`tests.verify_ui_integration` 7/7（含真�
   GUI 路径状态；不能直接复用 Req03 的单源六字段循环。
 - T32 审查结论：新版映射表本身无 AP/AT 冲突；在上述输入身份、第二视频、行关联、RowMode、Append/Replace、
   输出扩展名和重量复用语义得到用户确认前，T33/T34 不应进入不可逆实现或正式验收。
+
+## 2026-09-14 用户确认 Req04 输入文件
+
+- 用户确认 A=`文件/04/A模板.xls`，B=`文件/04/B模板.xlsx`；已用 Excel COM 只读打开核对。
+- A MD5：`5082C3928C1FAF6E218F5188E34C0772`；工作表为 `导入 单位转换`、`价格`、`运费表（公式数据，不动）`。
+- B MD5：`B618A89BED1A3C024CD459802A19FC6D`；工作表含 `Product Content And Site Exp`、`Instructions and Examples`、`Data Definitions`、`Hidden_product_content_and_sit`。Req04 目标候选为 `Product Content And Site Exp`，正式实现仍需按表头/层级规则确认。
+- 第二个视频不存在，继续以 `QQ20260914-113414.mp4` 作为唯一视频证据。
+- `文件/04/输出结果.xlsx` 已存在，MD5 `14582544BE11A4D23827E840D0EBFC4A`；未将其视为原始 B，未覆盖。
+- T33 已进入“进行中”。解除条件收窄为：确认两源表行关联、输出扩展名、`Visible/All` 与空行准入、Append/Replace、以及 E 同时写 K/AR 的业务意图；在此之前不修改产品实现。
