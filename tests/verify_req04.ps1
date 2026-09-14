@@ -94,6 +94,30 @@ function Get-FormatSignature($worksheet, [string]$address) {
     }
 }
 
+function Get-StyleSignature($worksheet, [string]$address) {
+    $cell = $worksheet.Range($address)
+    $font = $null
+    $interior = $null
+    try {
+        $font = $cell.Font
+        $interior = $cell.Interior
+        return (@(
+            [string]$font.Name,
+            [string]$font.Size,
+            [string]$font.Bold,
+            [string]$font.Italic,
+            [string]$font.Color,
+            [string]$interior.Color,
+            [string]$cell.VerticalAlignment,
+            [string]$cell.WrapText
+        ) -join '|')
+    } finally {
+        foreach ($item in @($font, $interior, $cell)) {
+            if ($item) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($item) }
+        }
+    }
+}
+
 function Clear-Value($worksheet, [string]$address) {
     $cell = $worksheet.Range($address)
     try { $cell.ClearContents() }
@@ -181,9 +205,12 @@ try {
     }
     foreach ($row in @(13, 318)) {
         foreach ($column in @('J', 'K', 'AN', 'AP', 'AR', 'AT', 'CR')) {
-            Assert-True ((Get-FormatSignature $firstWs "${column}${row}") -eq (Get-FormatSignature $templateWs "${column}${row}")) "首次 ${column}${row} 的非对齐格式发生变化。"
+            Assert-True ((Get-StyleSignature $firstWs "${column}${row}") -eq (Get-StyleSignature $templateWs "${column}${row}")) "首次 ${column}${row} 的非数字格式发生变化。"
             $cell = $firstWs.Range("${column}${row}")
-            try { Assert-True ([int]$cell.HorizontalAlignment -eq 5) "首次 ${column}${row} 未使用填充对齐。" }
+            try {
+                Assert-True ([int]$cell.HorizontalAlignment -eq 1) "首次 ${column}${row} 未使用常规对齐。"
+                Assert-True ([string]$cell.NumberFormat -eq '0.00') "首次 ${column}${row} 未使用数值格式 0.00。"
+            }
             finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($cell) }
         }
     }

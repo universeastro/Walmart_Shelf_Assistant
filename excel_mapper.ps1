@@ -802,7 +802,14 @@ try {
                 $letter = $mapping.Target.Letter
                 $endRow = $writeStart + $dataRows.Count - 1
                 $range = $targetWs.Range("${letter}${writeStart}:${letter}${endRow}")
-                try { $range.Value2 = $block; $range.HorizontalAlignment = 5 }
+                # Req04 writes each mapped cell with Excel's default horizontal
+                # alignment (General) and numeric display format. Other
+                # profiles retain their existing alignment/format rules below.
+                try {
+                    $range.Value2 = $block
+                    $range.HorizontalAlignment = 1
+                    $range.NumberFormat = '0.00'
+                }
                 finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) }
             }
             $result.rowsWritten = $dataRows.Count
