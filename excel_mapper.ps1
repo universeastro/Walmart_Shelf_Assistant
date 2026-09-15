@@ -808,7 +808,10 @@ try {
                 try {
                     $range.Value2 = $block
                     $range.HorizontalAlignment = 1
-                    $range.NumberFormat = '0.00'
+                    # Match the numeric format already used by the template's
+                    # dimension/weight cells so WPS classifies it as “数值”,
+                    # rather than as a custom 0.00 format.
+                    $range.NumberFormat = '0.00_);[红色](0.00)'
                 }
                 finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) }
             }

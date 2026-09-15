@@ -209,7 +209,7 @@ try {
             $cell = $firstWs.Range("${column}${row}")
             try {
                 Assert-True ([int]$cell.HorizontalAlignment -eq 1) "首次 ${column}${row} 未使用常规对齐。"
-                Assert-True ([string]$cell.NumberFormat -eq '0.00') "首次 ${column}${row} 未使用数值格式 0.00。"
+                Assert-True ([string]$cell.NumberFormat -eq '0.00_);[红色](0.00)') "首次 ${column}${row} 未使用模板数值格式。"
             }
             finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($cell) }
         }
