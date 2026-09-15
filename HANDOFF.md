@@ -1,5 +1,12 @@
 # 交接记录
 
+## 2026-09-15 中断后交付复核
+
+- 已重新阅读 `PROJECT.md`、`TASKS.md`、`HANDOFF.md` 与 `docs/CODE_REVIEW.md`；Req04 的 T31-T38 均为已完成，Claude 审查未留下阻断项。
+- 完整回归通过：`tests/verify_req04.ps1` 退出码 `0`（真实 306 行、Visible/All 305/306、追加起点 322、边界与拒绝场景通过）；`py tests/verify_ui_integration.py` 7/7；`py -m unittest tests.test_path_settings tests.test_ui_layout -v` 46/46；主线 `verify_mapping.ps1` 12/12；`tests/verify_alignment.ps1` 通过。
+- 用真实 `文件/04/A模板.xls` 与 `文件/04/B模板.xlsx` 生成 `文件/04/输出结果_数值格式修正版_最终.xlsx`。J/K/AN/AP/AR/AT/CR 首行读回均为真实数值，`NumberFormat=0.00_);[红色](0.00)`，`HorizontalAlignment=1`；原始 A/B 未修改。
+- 本轮提交并推送：`010116b fix: preserve req04 numeric template format`。用户已有的 `文件/04/输出结果*.xlsx` 与 `文件/05/` 均保持未跟踪，未纳入提交。
+
 ## 2026-09-14 Req04 写入对齐规则调整
 
 - 用户确认：支线 04 从 A 写入 B 时，七个 Req04 目标字段的每个新写入单元格，格式中的“文本对齐方式 → 水平对齐”使用默认“常规”（Excel `xlHAlignGeneral = 1）。
