@@ -496,6 +496,25 @@ function Convert-Req04Value([object]$Value) {
     return [pscustomobject]@{ Value = $Value; Converted = $false }
 }
 
+function Test-ExcelErrorValue([object]$Value) {
+    if ($null -eq $Value) { return $false }
+    # Excel COM exposes worksheet error results through Value2 as HRESULT-like
+    # Int32 values (for example, #N/A is -2146826246), not as the displayed
+    # error text. Keep this list explicit so legitimate negative numbers are
+    # never rejected as errors.
+    if ($Value -isnot [int] -and $Value -isnot [long]) { return $false }
+    return @(
+        -2146826288, # #NULL!
+        -2146826281, # #DIV/0!
+        -2146826273, # #VALUE!
+        -2146826265, # #REF!
+        -2146826259, # #NAME?
+        -2146826252, # #NUM!
+        -2146826246, # #N/A
+        -2146826245  # #GETTING_DATA / newer dynamic-array errors
+    ) -contains ([long]$Value)
+}
+
 function Get-Req04SourceRows($Worksheet, $Columns, [string[]]$BusinessKeys, [string]$RowMode, [ref]$HiddenSkipped) {
     $used = $Worksheet.UsedRange
     $headerRow = $used.Row
@@ -521,7 +540,6 @@ function Get-Req04SourceRows($Worksheet, $Columns, [string[]]$BusinessKeys, [str
             try { $isHidden = [bool]$rowRange.Hidden }
             finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($rowRange) }
             $values = [ordered]@{}
-            $hasBusinessValue = $false
             $hasNonFormulaBusinessValue = $false
             foreach ($key in $Columns.Keys) {
                 $column = $Columns[$key].Column
@@ -533,7 +551,6 @@ function Get-Req04SourceRows($Worksheet, $Columns, [string[]]$BusinessKeys, [str
                 if ($null -eq $value) { $value = '' }
                 $values[$key] = $value
                 if ($BusinessKeys -contains $key -and [string]$value -ne '') {
-                    $hasBusinessValue = $true
                     if (-not $hasFormula) { $hasNonFormulaBusinessValue = $true }
                 }
             }
@@ -562,6 +579,12 @@ function Get-Req04SourceRows($Worksheet, $Columns, [string[]]$BusinessKeys, [str
                     throw ('源工作表“{0}”第 {1} 行存在真实业务数据但 SKU 为空。' -f $Worksheet.Name, $row)
                 }
                 continue
+            }
+            foreach ($key in $Columns.Keys) {
+                $value = $values[$key]
+                if (Test-ExcelErrorValue $value) {
+                    throw ('源工作表“{0}”第 {1} 行字段“{2}”包含 Excel 错误值（{3}），已停止写入。' -f $Worksheet.Name, $row, $key, $value)
+                }
             }
             $key = Normalize-Text $sku
             if ($seen.ContainsKey($key)) {

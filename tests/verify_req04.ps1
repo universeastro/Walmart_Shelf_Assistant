@@ -21,6 +21,7 @@ $missingSkuSource = Join-Path $tempRoot 'missing-sku-source.xls'
 $reorderedSource = Join-Path $tempRoot 'reordered-source.xls'
 $asymmetricSource = Join-Path $tempRoot 'asymmetric-hidden-source.xls'
 $hiddenMissingSource = Join-Path $tempRoot 'hidden-missing-sku-source.xls'
+$errorSource = Join-Path $tempRoot 'error-value-source.xls'
 $conflictTarget = Join-Path $tempRoot 'conflict-target.xlsx'
 $edgeOutput = Join-Path $tempRoot 'edge-output.xlsx'
 $reorderedOutput = Join-Path $tempRoot 'reordered-output.xlsx'
@@ -28,6 +29,7 @@ $asymmetricVisibleOutput = Join-Path $tempRoot 'asymmetric-visible-output.xlsx'
 $asymmetricAllOutput = Join-Path $tempRoot 'asymmetric-all-output.xlsx'
 $hiddenMissingVisibleOutput = Join-Path $tempRoot 'hidden-missing-visible-output.xlsx'
 $hiddenMissingAllOutput = Join-Path $tempRoot 'hidden-missing-all-output.xlsx'
+$errorOutput = Join-Path $tempRoot 'error-value-output.xlsx'
 $excel = $null
 $sourceWb = $null
 $firstWb = $null
@@ -242,7 +244,7 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) "Req04 输出的公式/条件格式/数据验证未保留：$($comparison -join [Environment]::NewLine)"
 
     $testStage = '制作边界夹具'
-    foreach ($path in @($edgeSource, $duplicateSource, $unmatchedSource, $missingSkuSource, $reorderedSource, $rowModeSource, $asymmetricSource, $hiddenMissingSource)) {
+    foreach ($path in @($edgeSource, $duplicateSource, $unmatchedSource, $missingSkuSource, $reorderedSource, $rowModeSource, $asymmetricSource, $hiddenMissingSource, $errorSource)) {
         Copy-Item -LiteralPath $SourcePath -Destination $path -Force
     }
     Copy-Item -LiteralPath $TargetPath -Destination $conflictTarget -Force
@@ -258,7 +260,8 @@ try {
         @{ Path = $reorderedSource; Kind = 'Reordered' },
         @{ Path = $rowModeSource; Kind = 'RowMode' },
         @{ Path = $asymmetricSource; Kind = 'AsymmetricHidden' },
-        @{ Path = $hiddenMissingSource; Kind = 'HiddenMissingSku' }
+        @{ Path = $hiddenMissingSource; Kind = 'HiddenMissingSku' },
+        @{ Path = $errorSource; Kind = 'ErrorValue' }
     )) {
         $book = $editor.Workbooks.Open($case.Path, 0, $false)
         $unitSheet = $book.Worksheets.Item('导入 单位转换')
@@ -296,6 +299,8 @@ try {
             # remain real business rows and are counted/skipped deliberately.
             Set-Value $unitSheet 'E2' '1'
             Set-Value $priceSheet 'I2' '1'
+        } elseif ($case.Kind -eq 'ErrorValue') {
+            $priceSheet.Range('I3').Formula = '=NA()'
         } else {
             Set-RowHidden $unitSheet 2 $true
             Set-RowHidden $priceSheet 2 $true
@@ -366,6 +371,15 @@ try {
     Assert-True ($hiddenMissingAllCode -ne 0 -and $hiddenMissingAll.success -eq $false) '隐藏缺失 SKU 的 All 模式未返回失败。'
     Assert-True ($hiddenMissingAll.message -like '*SKU 为空*') "隐藏缺失 SKU 的 All 模式错误信息不正确：$($hiddenMissingAll.message)"
     Assert-True (-not (Test-Path -LiteralPath $hiddenMissingAllOutput)) '隐藏缺失 SKU 的 All 模式失败后不应生成输出文件。'
+
+    $errorJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
+        -SourcePath $errorSource -TargetPath $TargetPath -OutputPath $errorOutput `
+        -Profile Req04 -RowMode Visible -OutputMode Replace | Select-Object -Last 1
+    $errorCode = $LASTEXITCODE
+    $errorResult = $errorJson | ConvertFrom-Json
+    Assert-True ($errorCode -ne 0 -and $errorResult.success -eq $false) 'Excel 错误值未被拒绝。'
+    Assert-True ($errorResult.message -like '*Excel 错误值*' -and $errorResult.message -like '*SellingPrice*') "Excel 错误值错误信息不正确：$($errorResult.message)"
+    Assert-True (-not (Test-Path -LiteralPath $errorOutput)) 'Excel 错误值失败后不应生成输出文件。'
 
     $testStage = '边界值与隐藏行映射'
     $edgeJson = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mapper `
@@ -456,7 +470,7 @@ try {
     $afterHash = (Get-FileHash -Algorithm MD5 -LiteralPath $TargetPath).Hash
     Assert-True ($originalSourceHash -eq $afterSourceHash) '原始 A 文件哈希发生变化。'
     Assert-True ($originalHash -eq $afterHash) '原始 B 模板哈希发生变化。'
-    [pscustomobject]@{ success = $true; realRows = $first.rowsWritten; visibleFixtureRows = $visibleMode.rowsWritten; allFixtureRows = $allMode.rowsWritten; firstStart = $first.writeStartRow; appendStart = $second.writeStartRow; hiddenEdge = $edge.rowsHiddenSkipped; warningsEdge = $edge.warnings.Count; reorderedJoin = $true; hiddenConsistencyCases = 4; negativeCases = 5; outputExtension = [IO.Path]::GetExtension($first.output) } | ConvertTo-Json -Compress
+    [pscustomobject]@{ success = $true; realRows = $first.rowsWritten; visibleFixtureRows = $visibleMode.rowsWritten; allFixtureRows = $allMode.rowsWritten; firstStart = $first.writeStartRow; appendStart = $second.writeStartRow; hiddenEdge = $edge.rowsHiddenSkipped; warningsEdge = $edge.warnings.Count; reorderedJoin = $true; hiddenConsistencyCases = 4; negativeCases = 6; errorValueRejected = $true; outputExtension = [IO.Path]::GetExtension($first.output) } | ConvertTo-Json -Compress
     exit 0
 } catch {
     foreach ($openBook in @($sourceWb, $firstWb, $secondWb, $templateWb, $book, $edgeWb, $reorderedSourceWb, $reorderedOutputWb, $asymmetricAll, $hiddenMissingVisible)) {
